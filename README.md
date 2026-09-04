@@ -92,12 +92,43 @@ open index.html          # 双击也行，不需要起服务器
 
 ## 部署
 
-推到 GitHub 后，在 **Settings → Pages** 里选 `main` 分支根目录即可。
-`.github/workflows/update-data.yml` 会在每个工作日 21:30 UTC（美股收盘后）
-自动抓取、校验并提交新数据。
+仓库：<https://github.com/fengqiuming/tradeWithTqqq2026>
 
-要在 Yahoo 不可用时启用兜底，到 **Settings → Secrets → Actions**
-添加 `AV_API_KEY`。不配也能跑，只是少一层保险。
+### 推送
+
+```bash
+# 方式 A：SSH（需本机公钥已加到 GitHub）
+bash scripts/push_github.sh
+
+# 方式 B：HTTPS + Personal Access Token（推荐，顺带自动开启 Pages）
+GH_TOKEN=你的token bash scripts/push_github.sh
+```
+
+脚本会自动做连通性探测、选择通道、失败重试、推送，并在 token 可用时
+通过 API 开启 Pages。
+
+生成 token：<https://github.com/settings/tokens> → Generate new token (classic)
+→ 勾选 **`repo`** 和 **`workflow`**。
+
+> `workflow` 权限是必需的：本项目要推送 `.github/workflows/update-data.yml`，
+> 只有 `repo` 权限的 token 会被 GitHub 直接拒绝。
+
+> 某些网络下到 github.com 的连接会时通时断（502 与超时交替）。脚本内置了
+> 多次采样探测和指数退避重试，通一次就能推上去。
+
+### 开启 Pages
+
+带 token 跑脚本会自动完成。手动的话：仓库 **Settings → Pages → Source**
+选 `Deploy from a branch`，Branch 选 `main`、目录选 `/(root)`，保存。
+部署完成后访问 <https://fengqiuming.github.io/tradeWithTqqq2026/>。
+
+### 每日自动更新
+
+`.github/workflows/update-data.yml` 在每个工作日 21:30 UTC（美股收盘后）自动
+抓取、校验并提交新数据。也可随时手动触发：Actions → 更新行情数据 → Run workflow。
+
+要在 Yahoo 不可用时启用兜底，到 **Settings → Secrets → Actions** 添加
+`AV_API_KEY`。不配也能正常运行，只是少一层保险。
 
 ## 目录结构
 
