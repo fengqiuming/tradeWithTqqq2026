@@ -2,11 +2,14 @@
 # 一键推送到 GitHub，并尽量自动开启 Pages。
 #
 # 用法：
-#   bash scripts/push_github.sh                 # 用 SSH
-#   GH_TOKEN=ghp_xxx bash scripts/push_github.sh # 用 HTTPS + token（并自动开 Pages）
+#   bash scripts/push_github.sh        # 自动读取 .env 中的 GH_TOKEN
+#   GH_TOKEN=xxx bash scripts/push_github.sh   # 临时用环境变量覆盖
 #
-# 之所以需要这个脚本：当前开发机到 github.com 的 443 / 22 端口在 TCP 层就被阻断，
-# 无法从这里推送。换一台能访问 GitHub 的机器（或换个网络）执行本脚本即可。
+# 凭据来源优先级：环境变量 > .env 文件 > SSH
+# .env 已加入 .gitignore，脚本启动时会强制校验它没被 git 跟踪。
+#
+# 之所以需要这个脚本：某些网络下到 github.com 的 443 / 22 端口在 TCP 层被阻断，
+# 且连接时通时断（502 与超时交替）。脚本内置多次采样探测和指数退避重试。
 
 set -uo pipefail
 REPO_SSH="git@github.com:fengqiuming/tradeWithTqqq2026.git"
@@ -19,6 +22,45 @@ say(){ printf '\033[1m%s\033[0m\n' "$*"; }
 ok(){ printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad(){ printf '  \033[31m✗\033[0m %s\n' "$*"; }
 info(){ printf '  \033[33m·\033[0m %s\n' "$*"; }
+
+# ---------- 0. 载入 .env ----------
+# 逐行解析而不是直接 source，避免值里的特殊字符被 shell 解释。
+load_env(){
+  local f="$1" line k v
+  [ -f "$f" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"                       # 兼容 CRLF
+    line="${line#"${line%%[![:space:]]*}"}"    # 去前导空白
+    case "$line" in ''|'#'*) continue;; esac
+    k="${line%%=*}"; v="${line#*=}"
+    [ -n "$k" ] && [ "$k" != "$line" ] || continue
+    case "$v" in
+      \"*\") v="${v#\"}"; v="${v%\"}";;
+      \'*\') v="${v#\'}"; v="${v%\'}";;
+    esac
+    v="${v%"${v##*[![:space:]]}"}"             # 去尾部空白
+    # 环境变量已存在则不覆盖（允许命令行临时覆盖）
+    if [ -z "${!k:-}" ]; then export "$k=$v"; fi
+  done < "$f"
+}
+load_env ".env"
+
+# ---------- 0.5 凭据安全检查 ----------
+# .env 绝不能进版本库。宁可拒绝执行，也不能冒险推送。
+if [ -f .env ]; then
+  if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+    bad ".env 已被 git 跟踪！立即中止。"
+    echo "    修复：git rm --cached .env && git commit -m 'chore: 移除误提交的 .env'"
+    echo "    并确认 token 已泄露，请到 GitHub 上 revoke 后重新生成。"
+    exit 1
+  fi
+  if ! git check-ignore -q .env; then
+    bad ".env 未被 .gitignore 覆盖！已中止，避免凭据入仓。"
+    echo "    修复：确认 .gitignore 中包含 .env"
+    exit 1
+  fi
+  ok ".env 已加载，且确认未被 git 跟踪"
+fi
 
 # 到 github.com 的连接时通时断（502 / 超时交替出现），关键步骤都要重试
 retry(){
@@ -67,29 +109,40 @@ fi
 
 # ---------- 2. 选择推送通道 ----------
 say "2/5 选择推送通道"
+# 注意：token 不拼进 remote URL。一旦推送失败，git 会把完整 URL 打进错误信息，
+# 那样 token 就泄露到终端日志了。改用 http.extraheader 传 Authorization。
+GIT_AUTH=()
 if [ -n "${GH_TOKEN:-}" ]; then
-  git remote set-url origin "https://${GH_TOKEN}@github.com/${OWNER}/${REPO}.git" 2>/dev/null
-  ok "使用 HTTPS + GH_TOKEN"
+  git remote set-url origin "$REPO_HTTPS"
+  GIT_AUTH=(-c "http.extraheader=AUTHORIZATION: Basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')")
+  ok "使用 HTTPS + GH_TOKEN（经 http.extraheader 传递）"
 elif [ "$ssh_ok" = 1 ]; then
   git remote set-url origin "$REPO_SSH"
   ok "使用 SSH"
 elif [ "$https_ok" = 1 ]; then
-  info "SSH 未授权。可改用 HTTPS："
-  echo "    1) 在 github.com/settings/tokens 生成 Personal Access Token（勾 repo 权限）"
-  echo "    2) 重新运行：GH_TOKEN=你的token bash scripts/push_github.sh"
   git remote set-url origin "$REPO_HTTPS"
-  ok "已切换为 HTTPS（推送时终端会提示输入用户名和 token）"
+  info "未提供凭据。把 token 写进 .env（GH_TOKEN=...）即可免交互，"
+  echo "    或运行时传入：GH_TOKEN=你的token bash scripts/push_github.sh"
+  ok "已切换为 HTTPS（终端会提示输入用户名和 token）"
 fi
+
+# 输出前抹掉 token，防止泄露到日志
+scrub(){
+  local s="$1"
+  [ -n "${GH_TOKEN:-}" ] && s="${s//$GH_TOKEN/***}"
+  printf '%s' "$s"
+}
 
 # ---------- 3. 推送 ----------
 say "3/5 推送到 GitHub"
 git branch -M main 2>/dev/null
-if retry 6 git push -u origin main; then
+if retry 6 git "${GIT_AUTH[@]}" push -u origin main; then
   ok "推送成功"
 else
   bad "推送失败（已重试 6 次）"
-  echo "  最后错误：$LAST_ERR"
-  echo "  常见原因：token 权限不足 / 仓库不存在 / 远程已有内容（需先 git pull --rebase）"
+  echo "  最后错误：$(scrub "$LAST_ERR")"
+  echo "  常见原因：token 权限不足（需 Contents:RW + Workflows:RW）/ 仓库不存在 /"
+  echo "            远程已有内容（需先 git pull --rebase）"
   exit 1
 fi
 
@@ -109,7 +162,7 @@ if [ -n "${GH_TOKEN:-}" ] && [ "$https_ok" = 1 ]; then
     info "首次部署需 1~2 分钟"
   else
     info "自动开启未成功，请手动到 Settings → Pages → Source 选 main / (root)"
-    echo "    返回：$(echo "$resp" | head -c 200)"
+    echo "    返回：$(scrub "${resp:0:200}")"
   fi
 else
   info "跳过自动开启。请手动完成一次："
@@ -119,13 +172,15 @@ fi
 
 # ---------- 5. 可选：配置 Actions 密钥 ----------
 say "5/5 Alpha Vantage 兜底密钥（可选）"
-if [ -n "${AV_API_KEY:-}" ] && [ -n "${GH_TOKEN:-}" ] && [ "$https_ok" = 1 ]; then
-  info "配置 Secret 需要额外的加密步骤，请手动到"
+if [ -n "${AV_API_KEY:-}" ]; then
+  info ".env 中已配置 AV_API_KEY，但需要同步到 GitHub 才能被 Actions 使用："
   echo "    https://github.com/${OWNER}/${REPO}/settings/secrets/actions"
-  echo "    New repository secret → 名称 AV_API_KEY"
+  echo "    New repository secret → 名称 AV_API_KEY → 值填 .env 里的那个"
+  echo "    （脚本不自动写入：那需要 token 额外具备 Secrets 写权限，风险不划算）"
 else
   info "未配置 AV_API_KEY 也能正常运行（yfinance 是主数据源）。"
-  echo "    想加兜底就到 Settings → Secrets → Actions 添加 AV_API_KEY。"
+  echo "    想加兜底就申请后填入 .env 的 AV_API_KEY，再到"
+  echo "    Settings → Secrets → Actions 添加同名密钥。"
 fi
 
 echo
