@@ -1,0 +1,58 @@
+name: 更新行情数据
+
+on:
+  # 美股收盘后运行。美东 16:00 = 夏令时 20:00 UTC / 冬令时 21:00 UTC，
+  # 取 21:30 UTC 两个时段都能覆盖（夏令时会晚约 1.5 小时，日线级策略无影响）。
+  schedule:
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:      # 允许手动触发
+  push:
+    paths:
+      - 'scripts/fetch_data.py'
+      - '.github/workflows/update-data.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 抓取并校验行情
+        env:
+          # Alpha Vantage 免费 Key，在仓库 Settings → Secrets 里配置。
+          # yfinance 可用时不会用到它；配了才能在 Yahoo 抽风时兜底。
+          AV_API_KEY: ${{ secrets.AV_API_KEY }}
+        run: python3 scripts/fetch_data.py
+
+      - name: 检查数据是否变化
+        id: diff
+        run: |
+          # -N（intent to add）：让尚未跟踪的新文件也出现在 git diff 里。
+          # 否则首次运行时数据文件处于 untracked 状态，diff 恒为空、被误判为「无变化」。
+          git add -N data/market.json data/market.js
+          if git diff --quiet -- data/market.json data/market.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "数据无变化，跳过提交"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 提交
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/market.json data/market.js
+          git commit -m "chore: 更新行情数据 $(date -u +'%Y-%m-%d')"
+          git push

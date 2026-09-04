@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.DS_Store
+*.tmp
+*.swp
+
+# 工作区记忆 / 工具私有目录，不入库
+.workbuddy/

@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TQQQ 交易指引</title>
+<style>
+:root{
+  --bg:#f7f7f5; --card:#ffffff; --line:#e3e2dd; --line-soft:#efeee9;
+  --tx:#1c1c1a; --tx2:#5f5e5a; --tx3:#8a8980;
+  --up:#c0392b; --up-bg:#fceceb; --up-line:#e8b4b0;
+  --down:#0f6e56; --down-bg:#e3f5ee; --down-line:#9fd8c6;
+  --warn:#8a5a00; --warn-bg:#fbf0d8; --warn-line:#e5c98a;
+  --info:#185fa5; --info-bg:#e8f1fa; --info-line:#a8c8e8;
+  --r:10px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--tx);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:24px 20px 64px}
+h1{font-size:20px;font-weight:600;margin:0 0 4px}
+h2{font-size:15px;font-weight:600;margin:0 0 14px}
+h3{font-size:13px;font-weight:600;margin:18px 0 8px;color:var(--tx2)}
+.sub{color:var(--tx2);font-size:12.5px;margin:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.muted{color:var(--tx2)}
+.tiny{font-size:12px;color:var(--tx3)}
+.mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* 顶部数据条 */
+.databar{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:10px 16px;margin-bottom:16px;font-size:12.5px;color:var(--tx2)}
+.databar b{color:var(--tx);font-weight:600}
+.pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:600}
+.pill-ok{background:var(--down-bg);color:var(--down)}
+.pill-warn{background:var(--warn-bg);color:var(--warn)}
+
+/* tabs */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tab{padding:9px 16px;cursor:pointer;font-size:13.5px;color:var(--tx2);
+  border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
+.tab:hover{color:var(--tx)}
+.tab.on{color:var(--tx);font-weight:600;border-bottom-color:var(--tx)}
+.panel{display:none}
+.panel.on{display:block}
+
+/* 信号大卡 */
+.signal{border-radius:var(--r);padding:20px;border:1px solid;margin-bottom:16px}
+.sig-bull{background:var(--up-bg);border-color:var(--up-line)}
+.sig-bear{background:var(--down-bg);border-color:var(--down-line)}
+.sig-band{background:#f2f1ec;border-color:var(--line)}
+.sig-title{font-size:19px;font-weight:600;margin:0 0 4px}
+.sig-bull .sig-title{color:var(--up)}
+.sig-bear .sig-title{color:var(--down)}
+.sig-band .sig-title{color:var(--tx)}
+.sig-action{font-size:14px;margin:8px 0 0}
+
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:760px){.g2,.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.stat .k{font-size:11.5px;color:var(--tx3);margin-bottom:3px}
+.stat .v{font-size:19px;font-weight:600;letter-spacing:-.2px}
+.stat .n{font-size:11.5px;color:var(--tx3);margin-top:2px}
+.v-up{color:var(--up)} .v-down{color:var(--down)}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--line-soft)}
+th{color:var(--tx3);font-weight:500;font-size:11.5px;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+tbody tr:hover{background:#faf9f6}
+.scroll{max-height:340px;overflow:auto;border:1px solid var(--line-soft);border-radius:8px}
+
+label{display:block;font-size:12px;color:var(--tx2);margin-bottom:4px}
+input,select,button,textarea{font:inherit;font-size:13px}
+input[type=number],input[type=date],input[type=text],select{
+  width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;
+  background:#fff;color:var(--tx)}
+input:focus,select:focus{outline:none;border-color:var(--info)}
+button{padding:8px 14px;border:1px solid var(--line);background:#fff;border-radius:7px;
+  cursor:pointer;color:var(--tx)}
+button:hover{background:#faf9f6;border-color:var(--tx3)}
+button.primary{background:var(--tx);color:#fff;border-color:var(--tx)}
+button.primary:hover{opacity:.85}
+button.danger{color:var(--up);border-color:var(--up-line)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.row>div{flex:1;min-width:130px}
+.note{background:var(--info-bg);border:1px solid var(--info-line);border-radius:8px;
+  padding:10px 12px;font-size:12.5px;color:#12456f;margin-top:12px}
+.note.warn{background:var(--warn-bg);border-color:var(--warn-line);color:#6b4700}
+.chart{width:100%;display:block}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--tx2);margin-top:8px}
+.legend i{display:inline-block;width:14px;height:2.5px;vertical-align:middle;margin-right:5px}
+.empty{padding:28px;text-align:center;color:var(--tx3);font-size:13px}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
+.tag-b{background:var(--up-bg);color:var(--up)}
+.tag-s{background:var(--down-bg);color:var(--down)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>TQQQ 交易指引</h1>
+<p class="sub">基于 QQQ 200 日均线的牛熊判别 + 定投加仓策略。数据为构建期快照，不依赖运行时行情接口。</p>
+
+<div class="databar" id="databar"></div>
+
+<div class="tabs">
+  <div class="tab on" data-tab="signal">今日信号</div>
+  <div class="tab" data-tab="backtest">策略回测</div>
+  <div class="tab" data-tab="records">我的记录</div>
+</div>
+
+<!-- ============ 今日信号 ============ -->
+<div class="panel on" id="panel-signal">
+  <div id="signal-box"></div>
+  <div class="card">
+    <h2>QQQ 与 200 日均线（近 250 个交易日）</h2>
+    <div id="chart-signal"></div>
+    <div class="legend">
+      <span><i style="background:#1c1c1a"></i>QQQ 收盘</span>
+      <span><i style="background:#185fa5"></i>MA200</span>
+      <span><i style="background:#c0392b"></i>牛市线 MA200×1.04</span>
+      <span><i style="background:#0f6e56"></i>熊市线 MA200×0.97</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>近期信号触发记录</h2>
+    <div id="recent-signals"></div>
+  </div>
+</div>
+
+<!-- ============ 策略回测 ============ -->
+<div class="panel" id="panel-backtest">
+  <div class="card">
+    <h2>参数</h2>
+    <div class="row">
+      <div><label>牛市阈值（MA200 上方 %）</label><input type="number" id="p-bull" value="4" step="0.5" min="0"></div>
+      <div><label>熊市阈值（MA200 下方 %）</label><input type="number" id="p-bear" value="3" step="0.5" min="0"></div>
+      <div><label>加仓触发（QQQ 单日跌 %）</label><input type="number" id="p-dip" value="1" step="0.1" min="0"></div>
+      <div><label>移动止损（TQQQ 回撤 %）</label><input type="number" id="p-stop" value="40" step="1" min="1"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label>每月存入（美元）</label><input type="number" id="p-monthly" value="1000" step="100" min="0"></div>
+      <div><label>回测起点</label><input type="date" id="p-start"></div>
+      <div><label>止损后重新入场</label>
+        <select id="p-reentry">
+          <option value="strict">必须重新突破牛市线</option>
+          <option value="dip">牛市中遇回调即可买回</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto"><button class="primary" id="btn-run">运行回测</button></div>
+    </div>
+    <div class="note">止损后如何重新入场，原文档没有说清，这是策略里最影响结果的一个歧义点，所以做成可选项。默认取保守口径：必须等 QQQ 重新站上牛市线。</div>
+  </div>
+
+  <div class="card">
+    <h2>结果</h2>
+    <div class="grid g4" id="bt-stats"></div>
+    <h3>净值曲线（对数坐标，含定投现金流）</h3>
+    <div id="chart-equity"></div>
+    <div class="legend">
+      <span><i style="background:#c0392b"></i>本策略</span>
+      <span><i style="background:#185fa5"></i>定投 QQQ 正股</span>
+      <span><i style="background:#8a8980"></i>定投 TQQQ 不止损</span>
+    </div>
+    <h3>回撤曲线（按时间加权，剔除定投影响）</h3>
+    <div id="chart-dd"></div>
+    <div class="legend"><span><i style="background:#0f6e56"></i>策略回撤</span></div>
+  </div>
+
+  <div class="card">
+    <h2>交易明细</h2>
+    <div class="scroll"><table id="bt-trades"></table></div>
+  </div>
+</div>
+
+<!-- ============ 我的记录 ============ -->
+<div class="panel" id="panel-records">
+  <div class="card">
+    <h2>录入交易</h2>
+    <div class="row">
+      <div><label>日期</label><input type="date" id="r-date"></div>
+      <div><label>操作</label><select id="r-action"><option value="buy">买入</option><option value="sell">卖出</option></select></div>
+      <div><label>价格（美元）</label><input type="number" id="r-price" step="0.01" min="0" placeholder="0.00"></div>
+      <div><label>数量（股）</label><input type="number" id="r-shares" step="0.0001" min="0" placeholder="0"></div>
+      <div style="flex:2"><label>备注</label><input type="text" id="r-note" placeholder="选填"></div>
+      <div style="flex:0 0 auto"><button class="primary" id="btn-add">添加</button></div>
+    </div>
+    <div class="note">记录只保存在这台设备的浏览器里（localStorage）。清缓存或换设备会丢，建议定期用下面的「导出」备份成文件。</div>
+  </div>
+
+  <div class="card">
+    <h2>持仓概览</h2>
+    <div class="grid g4" id="pos-stats"></div>
+  </div>
+
+  <div class="card">
+    <h2>交易记录</h2>
+    <div class="scroll"><table id="rec-table"></table></div>
+    <div class="row" style="margin-top:14px">
+      <div style="flex:0 0 auto"><button id="btn-export">导出 JSON</button></div>
+      <div style="flex:0 0 auto"><button id="btn-import">导入 JSON</button></div>
+      <div style="flex:0 0 auto"><button class="danger" id="btn-clear">清空</button></div>
+      <input type="file" id="file-import" accept=".json" style="display:none">
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script src="data/market.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   数据加载
+   ============================================================ */
+let DATA = null;
+async function loadData(){
+  if (window.MARKET_DATA) return window.MARKET_DATA;
+  try{
+    const r = await fetch('data/market.json');
+    if(!r.ok) throw new Error(r.status);
+    return await r.json();
+  }catch(e){
+    return null;
+  }
+}
+
+/* ============================================================
+   工具
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const fmtN = (v,d=2) => (v==null||!isFinite(v)) ? '—' :
+  v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtMoney = v => (v==null||!isFinite(v)) ? '—' :
+  '$' + Math.round(v).toLocaleString('en-US');
+const fmtPct = (v,d=1) => (v==null||!isFinite(v)) ? '—' : (v*100).toFixed(d)+'%';
+const fmtPctS = (v,d=1) => (v==null||!isFinite(v)) ? '—' : (v>=0?'+':'')+(v*100).toFixed(d)+'%';
+const dayDiff = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ============================================================
+   核心计算
+   ============================================================ */
+function ma200(series){
+  const n = series.length, out = new Array(n).fill(null);
+  let sum = 0;
+  for(let i=0;i<n;i++){
+    sum += series[i];
+    if(i>=200) sum -= series[i-200];
+    if(i>=199) out[i] = sum/200;
+  }
+  return out;
+}
+
+/** 按日现金流求年化 IRR（二分法）。flows: [{t:年, amount:负=投入}]，末值为正。 */
+function xirr(flows, finalValue, finalT){
+  const all = flows.concat([{t:finalT, amount:finalValue}]);
+  const npv = r => {
+    let s = 0;
+    for(const f of all) s += f.amount / Math.pow(1+r, f.t);
+    return s;
+  };
+  let lo=-0.95, hi=5;
+  if(npv(lo)*npv(hi) > 0) return null;
+  for(let k=0;k<160;k++){
+    const mid=(lo+hi)/2;
+    if(npv(lo)*npv(mid) <= 0) hi=mid; else lo=mid;
+  }
+  return (lo+hi)/2;
+}
+
+/** 从净值序列（含现金流）算时间加权净值、最大回撤、最长水下天数 */
+function twrAndDD(equity, deposits, dates){
+  const n = equity.length;
+  const twr = new Array(n).fill(1);
+  for(let i=1;i<n;i++){
+    const prev = equity[i-1];
+    const r = prev>0 ? (equity[i] - (deposits[i]||0)) / prev - 1 : 0;
+    twr[i] = twr[i-1] * (1+r);
+  }
+  let peak=twr[0], maxDD=0, uStart=null, longest=0;
+  for(let i=1;i<n;i++){
+    if(twr[i] >= peak){
+      if(uStart!==null){ const d=dayDiff(dates[uStart],dates[i]); if(d>longest) longest=d; uStart=null; }
+      peak = twr[i];
+    }else{
+      const dd = twr[i]/peak - 1;
+      if(dd < maxDD) maxDD = dd;
+      if(uStart===null) uStart=i;
+    }
+  }
+  if(uStart!==null){ const d=dayDiff(dates[uStart],dates[n-1]); if(d>longest) longest=d; }
+  return {twr, maxDD, longestDays:longest, longestYears:longest/365.25};
+}
+
+/**
+ * 策略回测
+ * p: {bullTh,bearTh,dipPct,stopPct,monthly,startIdx,reentry}
+ */
+function backtest(p){
+  const dates=DATA.dates, qqq=DATA.qqq, tqqq=DATA.tqqq;
+  const n=dates.length, ma=ma200(qqq);
+  const bullLine = 1 + p.bullTh/100, bearLine = 1 - p.bearTh/100;
+
+  // 起点：MA200 就绪 且 TQQQ 有数据
+  let i0 = Math.max(199, p.startIdx||0);
+  while(i0<n && (tqqq[i0]==null || ma[i0]==null)) i0++;
+
+  let cash=0, shares=0, peak=0, regime=null, locked=false, holding=false;
+  let invested=0;
+  const trades=[], equity=[], deposits=[], subDates=[], flows=[];
+  const t0 = new Date(dates[i0]);
+  let lastMonth = null;
+
+  for(let i=i0;i<n;i++){
+    const px=tqqq[i];
+    if(px==null) continue;
+
+    // 1) 每月定投
+    let dep = 0;
+    const mo = dates[i].slice(0,7);
+    if(lastMonth !== null && mo !== lastMonth){ dep = p.monthly; }
+    lastMonth = mo;
+    if(dep>0){
+      cash += dep; invested += dep;
+      flows.push({t: dayDiff(t0,new Date(dates[i]))/365.25, amount:-dep});
+    }
+
+    const ratio = qqq[i]/ma[i];
+    const prevRegime = regime;
+    if(ratio > bullLine) regime='bull';
+    else if(ratio < bearLine) regime='bear';
+
+    // 熊转牛 → 解除止损锁定
+    if(regime==='bull' && prevRegime==='bear') locked=false;
+
+    // 2) 持仓：更新高点 + 移动止损
+    if(holding){
+      if(px>peak) peak=px;
+      if(px <= peak*(1-p.stopPct/100)){
+        const amt = shares*px;
+        trades.push({date:dates[i], act:'止损清仓', px, shares, amt,
+                     note:`自高点 ${fmtN(peak)} 回撤 ${fmtPct(px/peak-1)}`});
+        cash += amt; shares=0; holding=false; locked=true; peak=0;
+      }
+    }
+
+    // 3) 牛转熊 → 清仓
+    if(regime==='bear' && holding){
+      const amt = shares*px;
+      trades.push({date:dates[i], act:'牛转熊清仓', px, shares, amt,
+                   note:`QQQ/MA200 = ${fmtN(ratio,3)} < ${fmtN(bearLine,2)}`});
+      cash += amt; shares=0; holding=false; peak=0;
+    }
+
+    // 4) 买入 / 加仓
+    //    注意：加仓是在已有仓位上继续投，不是必须先空仓。
+    //    文档原文「只要 QQQ 保持在牛市区间内，每次遇到单日跌 1%，
+    //    就再次将账户现金全额加仓 TQQQ，以此无限循环」。
+    if(regime==='bull' && cash>0 && px>0){
+      const chg = i>0 ? qqq[i]/qqq[i-1]-1 : 0;
+      const justFlipped = (prevRegime==='bear' || prevRegime===null);
+      let go = false;
+      if(!locked){
+        go = justFlipped || chg <= -p.dipPct/100;
+      }else if(p.reentry==='dip' && chg <= -p.dipPct/100){
+        go = true;  // 止损后宽松口径：牛市中遇回调即可买回
+      }
+      if(go){
+        const add = cash/px;
+        shares += add;
+        trades.push({date:dates[i],
+                     act: justFlipped ? '熊转牛买入' : (holding?'回调加仓':'回调建仓'),
+                     px, shares:add, amt:cash,
+                     note:`QQQ 单日 ${fmtPctS(chg)}`});
+        cash = 0;
+        // 止损高点：首次建仓时重置，加仓不重置（沿用「本次持仓周期内最高点」）
+        peak = holding ? Math.max(peak, px) : px;
+        holding = true;
+      }
+    }
+
+    equity.push(cash + shares*px);
+    deposits.push(dep);
+    subDates.push(dates[i]);
+  }
+
+  const finalValue = equity.length ? equity[equity.length-1] : 0;
+  const totalT = subDates.length ? dayDiff(t0,new Date(subDates[subDates.length-1]))/365.25 : 0;
+  const irr = xirr(flows, finalValue, totalT);
+  const dd = twrAndDD(equity, deposits, subDates);
+
+  return {
+    trades, equity, deposits, dates:subDates, twr:dd.twr,
+    invested, finalValue, irr,
+    maxDD:dd.maxDD, longestYears:dd.longestYears,
+    holding, shares, start:subDates[0], end:subDates[subDates.length-1],
+    years:totalT,
+  };
+}
+
+/** 基准：每月定投、一直持有 */
+function runHold(series, p){
+  const dates=DATA.dates;
+  let i0 = Math.max(0, p.startIdx||0);
+  while(i0<dates.length && series[i0]==null) i0++;
+
+  let shares=0, invested=0, lastMonth=null;
+  const equity=[], deposits=[], subDates=[], flows=[];
+  const t0=new Date(dates[i0]);
+  for(let i=i0;i<dates.length;i++){
+    const px=series[i]; if(px==null) continue;
+    let dep=0;
+    const mo=dates[i].slice(0,7);
+    if(lastMonth!==null && mo!==lastMonth) dep=p.monthly;
+    lastMonth=mo;
+    if(dep>0){
+      invested+=dep;
+      shares += dep/px;
+      flows.push({t:dayDiff(t0,new Date(dates[i]))/365.25, amount:-dep});
+    }
+    equity.push(shares*px);
+    deposits.push(dep);
+    subDates.push(dates[i]);
+  }
+  const finalValue = equity[equity.length-1]||0;
+  const totalT = subDates.length ? dayDiff(t0,new Date(subDates[subDates.length-1]))/365.25 : 0;
+  const dd = twrAndDD(equity, deposits, subDates);
+  return {equity, dates:subDates, invested, finalValue,
+          irr:xirr(flows,finalValue,totalT), maxDD:dd.maxDD};
+}
+
+/* ============================================================
+   图表（纯 SVG，无外部依赖）
+   ============================================================ */
+function svgLine(seriesList, dates, opts){
+  opts = opts||{};
+  const W=980, H=opts.height||260, PL=52, PR=14, PT=14, PB=26;
+  const iw=W-PL-PR, ih=H-PT-PB;
+  const n = dates.length;
+  if(!n) return '<div class="empty">无数据</div>';
+
+  // 收集所有值
+  let all=[];
+  seriesList.forEach(s=>s.values.forEach(v=>{ if(v!=null && isFinite(v)) all.push(v); }));
+  if(!all.length) return '<div class="empty">无数据</div>';
+
+  const log = opts.log && Math.min.apply(null,all)>0;
+  let vmin=Math.min.apply(null,all), vmax=Math.max.apply(null,all);
+  if(log){ vmin=Math.log10(vmin); vmax=Math.log10(vmax); }
+  const pad=(vmax-vmin)*0.06 || 1;
+  vmin-=pad; vmax+=pad;
+  const Y = v => {
+    const x = log ? Math.log10(v) : v;
+    return PT + ih - (x-vmin)/(vmax-vmin)*ih;
+  };
+  const X = i => PL + (n<=1?0:i/(n-1)*iw);
+
+  let g='';
+  // y 轴网格
+  const ticks = log ? [0.1,0.25,0.5,1,2,4,10,20,40,100,200,400,1000,2000,5000,10000,50000,100000]
+                    : null;
+  if(log){
+    ticks.filter(t=>t>=Math.pow(10,vmin)&&t<=Math.pow(10,vmax)).forEach(t=>{
+      const y=Y(t);
+      g+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#efeee9" stroke-width="1"/>`;
+      g+=`<text x="${PL-6}" y="${y+3.5}" text-anchor="end" font-size="10.5" fill="#8a8980">${t>=1000?(t/1000)+'k':t}</text>`;
+    });
+  }else{
+    for(let k=0;k<=4;k++){
+      const v=vmin+(vmax-vmin)*k/4, y=PT+ih-ih*k/4;
+      g+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#efeee9" stroke-width="1"/>`;
+      g+=`<text x="${PL-6}" y="${y+3.5}" text-anchor="end" font-size="10.5" fill="#8a8980">${v.toFixed(opts.dec!=null?opts.dec:0)}</text>`;
+    }
+  }
+  // x 轴年份
+  let lastYr=null;
+  for(let i=0;i<n;i++){
+    const yr=dates[i].slice(0,4);
+    if(yr!==lastYr){
+      lastYr=yr;
+      g+=`<text x="${X(i)}" y="${H-8}" text-anchor="middle" font-size="10.5" fill="#8a8980">${yr}</text>`;
+    }
+  }
+  // 零线
+  if(opts.zero && vmin<0 && vmax>0){
+    const y=Y(0);
+    g+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#c9c8c1" stroke-width="1"/>`;
+  }
+  // 曲线
+  seriesList.forEach(s=>{
+    let d='', started=false;
+    for(let i=0;i<n;i++){
+      const v=s.values[i];
+      if(v==null||!isFinite(v)){ started=false; continue; }
+      d += (started?'L':'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      started=true;
+    }
+    g+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.w||1.6}" ${s.dash?'stroke-dasharray="4 3"':''}/>`;
+  });
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>`;
+}
+
+/* ============================================================
+   页面：数据条 & 信号
+   ============================================================ */
+function renderDataBar(){
+  const m=DATA.meta;
+  const gen=new Date(m.generated_at);
+  const html = `
+    <span>数据区间 <b>${m.qqq.start}</b> → <b>${m.qqq.end}</b></span>
+    <span>QQQ <b>${m.qqq.bars}</b> 根 / TQQQ <b>${m.tqqq.bars}</b> 根</span>
+    <span>来源 <b>${esc(m.source)}</b></span>
+    <span>更新于 <b>${gen.toLocaleString('zh-CN',{hour12:false})}</b></span>
+    ${m.degraded ? '<span class="pill pill-warn">降级模式</span>' : '<span class="pill pill-ok">校验通过</span>'}
+  `;
+  $('#databar').innerHTML = html;
+  if(m.degraded){
+    $('#databar').insertAdjacentHTML('beforeend',
+      `<div style="flex-basis:100%;color:#6b4700;background:var(--warn-bg);
+        border:1px solid var(--warn-line);border-radius:7px;padding:8px 10px;margin-top:2px">
+       ⚠️ ${esc(m.note||'历史深度受限')}</div>`);
+  }
+}
+
+function renderSignal(){
+  const dates=DATA.dates, qqq=DATA.qqq, tqqq=DATA.tqqq, ma=ma200(qqq);
+  const n=dates.length;
+  let i=n-1; while(i>0 && (ma[i]==null||tqqq[i]==null)) i--;
+  const price=qqq[i], m=ma[i], ratio=price/m;
+  const bull=1.04, bear=0.97;
+
+  let cls, title, action;
+  if(ratio>bull){
+    cls='sig-bull'; title='牛市区间';
+    action='持有 TQQQ。账户里每积累一笔现金，等 QQQ 出现单日下跌 ≥1% 就一次性全仓买入；'+
+           '若刚从熊市突破上来，则不等回调、立即买入。';
+  }else if(ratio<bear){
+    cls='sig-bear'; title='熊市区间';
+    action='清仓持币，不做任何买入。每月照常存入 $1,000，'+
+           '空仓资金可放货币基金或短债吃 3%~5% 利息，等待 QQQ 重新站上 MA200×1.04。';
+  }else{
+    cls='sig-band'; title='缓冲带（维持现状）';
+    action='处于 MA200 的 0.97~1.04 倍之间，不触发任何新信号。'+
+           '沿用上一次的状态：之前持仓就继续持有，之前空仓就继续空仓。';
+  }
+
+  const toBull = bull*m - price;
+  const toBear = price - bear*m;
+
+  $('#signal-box').innerHTML = `
+    <div class="signal ${cls}">
+      <p class="sig-title">${title}</p>
+      <p class="sig-action">${action}</p>
+    </div>
+    <div class="grid g4">
+      <div class="stat"><div class="k">QQQ 收盘（${dates[i]}）</div><div class="v mono">${fmtN(price)}</div>
+        <div class="n">TQQQ ${fmtN(tqqq[i])}</div></div>
+      <div class="stat"><div class="k">MA200</div><div class="v mono">${fmtN(m)}</div>
+        <div class="n">QQQ/MA200 = ${fmtN(ratio,3)}</div></div>
+      <div class="stat"><div class="k">距牛市线 ${fmtN(bull*m)}</div>
+        <div class="v mono ${toBull>0?'v-up':''}">${toBull>0?'+':''}${fmtPct(toBull/price)}</div>
+        <div class="n">${toBull>0?'还需上涨':'已站上'}</div></div>
+      <div class="stat"><div class="k">距熊市线 ${fmtN(bear*m)}</div>
+        <div class="v mono ${toBear<0?'v-down':''}">${fmtPct(toBear/price)}</div>
+        <div class="n">${toBear>0?'尚有缓冲':'已跌破'}</div></div>
+    </div>`;
+
+  // 迷你图
+  const s=Math.max(0,i-249);
+  const sl=[
+    {name:'QQQ', values:qqq.slice(s,i+1), color:'#1c1c1a', w:1.7},
+    {name:'MA200', values:ma.slice(s,i+1), color:'#185fa5', w:1.4},
+    {name:'牛市线', values:ma.slice(s,i+1).map(v=>v==null?null:v*bull), color:'#c0392b', w:1, dash:true},
+    {name:'熊市线', values:ma.slice(s,i+1).map(v=>v==null?null:v*bear), color:'#0f6e56', w:1, dash:true},
+  ];
+  $('#chart-signal').innerHTML = svgLine(sl, dates.slice(s,i+1), {height:250});
+
+  // 近期信号
+  const bt = backtest({bullTh:4,bearTh:3,dipPct:1,stopPct:40,monthly:1000,reentry:'strict',startIdx:0});
+  const recent = bt.trades.slice(-14).reverse();
+  $('#recent-signals').innerHTML = recent.length ? `
+    <div class="scroll"><table>
+      <thead><tr><th>日期</th><th>动作</th><th>TQQQ 价格</th><th>股数</th><th>金额</th><th>说明</th></tr></thead>
+      <tbody>${recent.map(t=>`<tr>
+        <td class="mono">${t.date}</td>
+        <td><span class="tag ${/买入|加仓/.test(t.act)?'tag-b':'tag-s'}">${esc(t.act)}</span></td>
+        <td class="mono">${fmtN(t.px)}</td><td class="mono">${fmtN(t.shares,2)}</td>
+        <td class="mono">${fmtMoney(t.amt)}</td>
+        <td class="muted">${esc(t.note||'')}</td></tr>`).join('')}
+      </tbody></table></div>`
+    : '<div class="empty">当前数据区间内没有触发任何交易信号</div>';
+}
+
+/* ============================================================
+   页面：回测
+   ============================================================ */
+function readParams(){
+  // 起点：MA200 需要 200 根预热，且 TQQQ 要有数据
+  let startIdx = 0;
+  const sv = $('#p-start').value;
+  if(sv){
+    const idx = DATA.dates.findIndex(d=>d>=sv);
+    if(idx>0) startIdx = idx;
+  }
+  return {
+    bullTh:+$('#p-bull').value, bearTh:+$('#p-bear').value,
+    dipPct:+$('#p-dip').value, stopPct:+$('#p-stop').value,
+    monthly:+$('#p-monthly').value, reentry:$('#p-reentry').value,
+    startIdx
+  };
+}
+
+function statCard(k,v,n,cls){
+  return `<div class="stat"><div class="k">${k}</div>
+    <div class="v mono ${cls||''}">${v}</div><div class="n">${n||''}</div></div>`;
+}
+
+function runBacktest(){
+  const p = readParams();
+  const bt = backtest(p);
+  const holdQ = runHold(DATA.qqq, p);
+  const holdT = runHold(DATA.tqqq, p);
+
+  $('#bt-stats').innerHTML =
+    statCard('年化收益（IRR）', fmtPct(bt.irr), `回测 ${bt.years.toFixed(1)} 年`, bt.irr>=0?'v-up':'v-down') +
+    statCard('期末总值', fmtMoney(bt.finalValue), `累计投入 ${fmtMoney(bt.invested)}`) +
+    statCard('最大回撤', fmtPct(bt.maxDD), `最长水下 ${bt.longestYears.toFixed(1)} 年`, 'v-down') +
+    statCard('交易次数', bt.trades.length, `${bt.trades.filter(t=>/买入|加仓/.test(t.act)).length} 买 / ${bt.trades.filter(t=>!/买入|加仓/.test(t.act)).length} 卖`) +
+    statCard('定投 QQQ 年化', fmtPct(holdQ.irr), `终值 ${fmtMoney(holdQ.finalValue)}`) +
+    statCard('定投 TQQQ 年化', fmtPct(holdT.irr), `终值 ${fmtMoney(holdT.finalValue)}`) +
+    statCard('相对 QQQ 超额', bt.irr!=null&&holdQ.irr!=null ? fmtPct(bt.irr-holdQ.irr) : '—', '策略 − 定投QQQ') +
+    statCard('QQQ 最大回撤', fmtPct(holdQ.maxDD), '正股基准', 'v-down');
+
+  // 净值曲线
+  const dates = bt.dates;
+  const sl=[
+    {name:'策略', values:bt.equity, color:'#c0392b', w:1.9},
+  ];
+  // 基准对齐到策略的日期轴
+  const qmap = new Map(holdQ.dates.map((d,i)=>[d,holdQ.equity[i]]));
+  const tmap = new Map(holdT.dates.map((d,i)=>[d,holdT.equity[i]]));
+  sl.push({name:'QQQ', values:dates.map(d=>qmap.has(d)?qmap.get(d):null), color:'#185fa5', w:1.4});
+  sl.push({name:'TQQQ', values:dates.map(d=>tmap.has(d)?tmap.get(d):null), color:'#8a8980', w:1.4, dash:true});
+  $('#chart-equity').innerHTML = svgLine(sl, dates, {log:true, height:280});
+
+  // 回撤曲线
+  const ddSeries = bt.twr.map((v,i)=>{
+    let peak = Math.max.apply(null, bt.twr.slice(0,i+1));
+    return v/peak - 1;
+  });
+  $('#chart-dd').innerHTML = svgLine(
+    [{name:'回撤', values:ddSeries, color:'#0f6e56', w:1.5}], dates, {height:190, dec:0, zero:true});
+
+  // 明细
+  const rows = bt.trades.slice().reverse();
+  $('#bt-trades').innerHTML = rows.length ? `
+    <thead><tr><th>日期</th><th>动作</th><th>TQQQ 价格</th><th>股数</th><th>金额</th><th>说明</th></tr></thead>
+    <tbody>${rows.map(t=>`<tr>
+      <td class="mono">${t.date}</td>
+      <td><span class="tag ${/买入|加仓/.test(t.act)?'tag-b':'tag-s'}">${esc(t.act)}</span></td>
+      <td class="mono">${fmtN(t.px)}</td><td class="mono">${fmtN(t.shares,2)}</td>
+      <td class="mono">${fmtMoney(t.amt)}</td>
+      <td class="muted">${esc(t.note||'')}</td></tr>`).join('')}</tbody>`
+    : '<tbody><tr><td class="empty">该参数下没有触发任何交易</td></tr></tbody>';
+}
+
+/* ============================================================
+   页面：我的记录
+   ============================================================ */
+const LS_KEY='tqqq_trader_records_v1';
+function loadRecords(){
+  try{ return JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }
+  catch(e){ return []; }
+}
+function saveRecords(rs){ localStorage.setItem(LS_KEY, JSON.stringify(rs)); }
+
+function renderRecords(){
+  const rs = loadRecords().slice().sort((a,b)=>a.date<b.date?1:-1);
+  const lastPx = (()=>{ const t=DATA.tqqq; for(let i=t.length-1;i>=0;i--) if(t[i]!=null) return t[i]; return null; })();
+
+  let shares=0, cost=0, realized=0;
+  // 按时间正序计算移动加权成本
+  rs.slice().reverse().forEach(r=>{
+    if(r.action==='buy'){
+      shares += r.shares; cost += r.shares*r.price;
+    }else{
+      const avg = shares>0 ? cost/shares : 0;
+      const s = Math.min(r.shares, shares);
+      realized += s*(r.price-avg);
+      cost -= s*avg; shares -= s;
+    }
+  });
+  const mv = shares*lastPx;
+  const pnl = mv - cost;
+
+  $('#pos-stats').innerHTML =
+    statCard('当前持仓', fmtN(shares,2)+' 股', lastPx?`现价 ${fmtN(lastPx)}`:'') +
+    statCard('持仓市值', fmtMoney(mv), `成本 ${fmtMoney(cost)}`) +
+    statCard('浮动盈亏', fmtMoney(pnl), cost>0?fmtPctS(pnl/cost):'', pnl>=0?'v-up':'v-down') +
+    statCard('已实现盈亏', fmtMoney(realized), '', realized>=0?'v-up':'v-down');
+
+  $('#rec-table').innerHTML = rs.length ? `
+    <thead><tr><th>日期</th><th>操作</th><th>价格</th><th>数量</th><th>金额</th><th>备注</th><th></th></tr></thead>
+    <tbody>${rs.map(r=>`<tr>
+      <td class="mono">${esc(r.date)}</td>
+      <td><span class="tag ${r.action==='buy'?'tag-b':'tag-s'}">${r.action==='buy'?'买入':'卖出'}</span></td>
+      <td class="mono">${fmtN(r.price)}</td><td class="mono">${fmtN(r.shares,4)}</td>
+      <td class="mono">${fmtMoney(r.price*r.shares)}</td>
+      <td class="muted">${esc(r.note||'')}</td>
+      <td><button data-del="${r.id}" style="padding:2px 8px;font-size:11.5px">删除</button></td>
+    </tr>`).join('')}</tbody>`
+    : '<tbody><tr><td class="empty">还没有记录</td></tr></tbody>';
+
+  document.querySelectorAll('[data-del]').forEach(b=>{
+    b.onclick = ()=>{
+      saveRecords(loadRecords().filter(x=>String(x.id)!==b.dataset.del));
+      renderRecords();
+    };
+  });
+}
+
+/* ============================================================
+   初始化
+   ============================================================ */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
+    t.classList.add('on');
+    $('#panel-'+t.dataset.tab).classList.add('on');
+  };
+});
+
+$('#btn-run').onclick = runBacktest;
+$('#btn-add').onclick = ()=>{
+  const date=$('#r-date').value, action=$('#r-action').value;
+  const price=+$('#r-price').value, shares=+$('#r-shares').value;
+  if(!date||!price||!shares){ alert('请填写日期、价格和数量'); return; }
+  const rs=loadRecords();
+  rs.push({id:Date.now()+'-'+Math.random().toString(36).slice(2,7),
+           date, action, price, shares, note:$('#r-note').value.trim()});
+  saveRecords(rs);
+  $('#r-price').value=''; $('#r-shares').value=''; $('#r-note').value='';
+  renderRecords();
+};
+$('#btn-export').onclick = ()=>{
+  const blob=new Blob([JSON.stringify(loadRecords(),null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`tqqq-records-${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$('#btn-import').onclick = ()=> $('#file-import').click();
+$('#file-import').onchange = e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const arr=JSON.parse(rd.result);
+      if(!Array.isArray(arr)) throw new Error('格式不对');
+      saveRecords(arr); renderRecords();
+    }catch(err){ alert('导入失败：'+err.message); }
+  };
+  rd.readAsText(f);
+  e.target.value='';
+};
+$('#btn-clear').onclick = ()=>{
+  if(confirm('确定清空全部交易记录？此操作不可撤销，建议先导出备份。')){
+    saveRecords([]); renderRecords();
+  }
+};
+
+(async function init(){
+  DATA = await loadData();
+  if(!DATA){
+    document.querySelector('.wrap').innerHTML =
+      '<div class="card"><h2>没有找到行情数据</h2>'+
+      '<p class="muted">请先运行 <code>python3 scripts/fetch_data.py</code> 生成 <code>data/market.js</code>。</p></div>';
+    return;
+  }
+  renderDataBar();
+  renderSignal();
+  // 默认起点：保证 MA200 预热完成后再开始
+  const t0 = DATA.meta.backtest_from;
+  const idx = DATA.dates.findIndex(d=>d>=t0);
+  $('#p-start').min = DATA.dates[0];
+  $('#p-start').max = DATA.dates[DATA.dates.length-1];
+  $('#p-start').value = DATA.dates[Math.min(DATA.dates.length-1, (idx>0?idx:0)+200)] || t0;
+  $('#r-date').value = new Date().toISOString().slice(0,10);
+  runBacktest();
+  renderRecords();
+})();
+</script>
+</body>
+</html>
