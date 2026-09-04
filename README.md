@@ -118,8 +118,13 @@ GH_TOKEN=你的token bash scripts/push_github.sh
 
 ### 开启 Pages
 
-带 token 跑脚本会自动完成。手动的话：仓库 **Settings → Pages → Source**
-选 `Deploy from a branch`，Branch 选 `main`、目录选 `/(root)`，保存。
+带 token 跑脚本会自动完成 —— **前提是 token 要带 `Pages: Read and write` 权限**。
+缺这个权限时 API 返回 `403 Resource not accessible by personal access token`，
+手动开即可，三步：
+
+仓库 **Settings → Pages → Source** 选 `Deploy from a branch`，
+Branch 选 `main`、目录选 `/(root)`，保存。
+
 部署完成后访问 <https://fengqiuming.github.io/tradeWithTqqq2026/>。
 
 ### 每日自动更新
