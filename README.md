@@ -135,12 +135,27 @@ Branch 选 `main`、目录选 `/(root)`，保存。
 要在 Yahoo 不可用时启用兜底，到 **Settings → Secrets → Actions** 添加
 `AV_API_KEY`。不配也能正常运行，只是少一层保险。
 
+## 图表交互
+
+- **横轴**按跨度自适应：1 年内标到月（`2026-03`），4 年内按季，再长按年。
+  16 年的净值曲线不会硬塞上百个月份标签。
+- **悬停**显示十字准线与浮层，内容为当日日期、QQQ、MA200、两条阈值线，
+  以及 TQQQ 价格（TQQQ 量纲差太多，不画进这张图，只放进浮层）。
+- **圆点标记**为信号触发点，颜色与下方表格的动作文字一致：
+
+  | 颜色 | 动作 |
+  |---|---|
+  | 红 `#c0392b` | 熊转牛买入 / 回调建仓 / 回调加仓 |
+  | 绿 `#0f6e56` | 牛转熊清仓 |
+  | 琥珀 `#8a5a00` | 止损清仓 |
+
 ## 目录结构
 
 ```
 index.html                        前端（单文件，零依赖，可离线运行）
 scripts/fetch_data.py             数据抓取 + 自检
 scripts/test_backtest.js          回测引擎冒烟测试（node）
+scripts/test_charts.js            图表渲染逻辑测试（node）
 scripts/check_frontend.js         前端静态检查（node）
 data/market.json  data/market.js  构建期数据快照
 requirements.txt                  仅抓取脚本需要
@@ -151,7 +166,8 @@ requirements.txt                  仅抓取脚本需要
 
 ```bash
 python3 scripts/fetch_data.py
-node scripts/test_backtest.js      # 校验回测数学 + 参数敏感性
+node scripts/test_backtest.js      # 回测数学 + 参数敏感性
+node scripts/test_charts.js        # 时间刻度 / 配色 / 标记 / 悬停配置
 node scripts/check_frontend.js     # 语法 / DOM 选择器 / 资源完整性
 ```
 

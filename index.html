@@ -97,6 +97,18 @@ button.danger{color:var(--up);border-color:var(--up-line)}
 .chart{width:100%;display:block}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--tx2);margin-top:8px}
 .legend i{display:inline-block;width:14px;height:2.5px;vertical-align:middle;margin-right:5px}
+.legend i.dot{width:9px;height:9px;border-radius:50%;vertical-align:-1px}
+/* 图表容器需 relative，tooltip 才能相对它定位 */
+.chart-host{position:relative}
+.tip{position:absolute;display:none;pointer-events:none;z-index:5;
+  background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 11px;
+  font-size:12px;line-height:1.65;white-space:nowrap;
+  box-shadow:0 2px 10px rgba(0,0,0,.09)}
+.tip .t-date{font-weight:600;font-size:12.5px;margin-bottom:5px;color:var(--tx)}
+.tip .t-row{display:flex;justify-content:space-between;gap:18px}
+.tip .t-row span{color:var(--tx2)}
+.tip .t-row b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--tx)}
+.tip .t-act{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft);font-weight:600}
 .empty{padding:28px;text-align:center;color:var(--tx3);font-size:13px}
 .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
 .tag-b{background:var(--up-bg);color:var(--up)}
@@ -128,7 +140,11 @@ button.danger{color:var(--up);border-color:var(--up-line)}
       <span><i style="background:#185fa5"></i>MA200</span>
       <span><i style="background:#c0392b"></i>牛市线 MA200×1.04</span>
       <span><i style="background:#0f6e56"></i>熊市线 MA200×0.97</span>
+      <span><i class="dot" style="background:#c0392b"></i>买入 / 加仓</span>
+      <span><i class="dot" style="background:#0f6e56"></i>牛转熊清仓</span>
+      <span><i class="dot" style="background:#8a5a00"></i>止损清仓</span>
     </div>
+    <div class="note">鼠标在图上移动可查看当日 QQQ、TQQQ、MA200 的数值；圆点为信号触发点，颜色与下方表格一致。</div>
   </div>
   <div class="card">
     <h2>近期信号触发记录</h2>
@@ -441,73 +457,199 @@ function runHold(series, p){
 /* ============================================================
    图表（纯 SVG，无外部依赖）
    ============================================================ */
+const CHARTS = {};   // id -> 图表配置，供悬停交互复用
+
+/** 动作 → 颜色。图表标记与下方表格共用同一套配色，保证对得上。 */
+function actionColor(act){
+  if(act === '止损清仓') return '#8a5a00';              // 琥珀：止损
+  if(/买入|加仓|建仓/.test(act)) return '#c0392b';       // 红：买入（涨/买）
+  return '#0f6e56';                                     // 绿：卖出（跌/卖）
+}
+function actionTag(act){
+  const c = actionColor(act);
+  return `<span class="tag" style="color:${c};background:${c}18">${esc(act)}</span>`;
+}
+
+/** 按跨度自适应时间刻度粒度：1 年内按月，4 年内按季，再长按年 */
+function pickTicks(dates, maxTicks){
+  const n = dates.length;
+  if(!n) return [];
+  const span = (new Date(dates[n-1]) - new Date(dates[0])) / 86400000;
+  const mode = span <= 450 ? 'month' : span <= 1500 ? 'quarter' : span > 5000 ? 'year2' : 'year';
+
+  const out = []; let lastKey = null;
+  for(let i=0;i<n;i++){
+    const d = dates[i], y = d.slice(0,4), m = +d.slice(5,7);
+    let key, label, show = true;
+    if(mode === 'month'){
+      key = d.slice(0,7); label = y + '-' + d.slice(5,7);
+    }else if(mode === 'quarter'){
+      const q = Math.ceil(m/3);
+      key = y + '-Q' + q; label = y + '-' + String((q-1)*3+1).padStart(2,'0');
+    }else{
+      key = y; label = y;
+      if(mode === 'year2' && (+y) % 2 !== 0) show = false;
+    }
+    if(show && key !== lastKey) out.push({i, label});
+    lastKey = key;
+  }
+  const stride = Math.max(1, Math.ceil(out.length / (maxTicks || 10)));
+  return out.filter((_, k) => k % stride === 0);
+}
+
 function svgLine(seriesList, dates, opts){
-  opts = opts||{};
-  const W=980, H=opts.height||260, PL=52, PR=14, PT=14, PB=26;
-  const iw=W-PL-PR, ih=H-PT-PB;
+  opts = opts || {};
+  const W = 980, H = opts.height || 260, PL = 56, PR = 14, PT = 14, PB = 34;
+  const iw = W - PL - PR, ih = H - PT - PB;
   const n = dates.length;
   if(!n) return '<div class="empty">无数据</div>';
 
-  // 收集所有值
-  let all=[];
-  seriesList.forEach(s=>s.values.forEach(v=>{ if(v!=null && isFinite(v)) all.push(v); }));
+  let all = [];
+  seriesList.forEach(s => s.values.forEach(v => { if(v != null && isFinite(v)) all.push(v); }));
   if(!all.length) return '<div class="empty">无数据</div>';
 
-  const log = opts.log && Math.min.apply(null,all)>0;
-  let vmin=Math.min.apply(null,all), vmax=Math.max.apply(null,all);
-  if(log){ vmin=Math.log10(vmin); vmax=Math.log10(vmax); }
-  const pad=(vmax-vmin)*0.06 || 1;
-  vmin-=pad; vmax+=pad;
+  const log = opts.log && Math.min.apply(null, all) > 0;
+  let vmin = Math.min.apply(null, all), vmax = Math.max.apply(null, all);
+  if(log){ vmin = Math.log10(vmin); vmax = Math.log10(vmax); }
+  const pad = (vmax - vmin) * 0.06 || 1;
+  vmin -= pad; vmax += pad;
   const Y = v => {
     const x = log ? Math.log10(v) : v;
-    return PT + ih - (x-vmin)/(vmax-vmin)*ih;
+    return PT + ih - (x - vmin) / (vmax - vmin) * ih;
   };
-  const X = i => PL + (n<=1?0:i/(n-1)*iw);
+  const X = i => PL + (n <= 1 ? 0 : i / (n - 1) * iw);
 
-  let g='';
+  let g = '';
   // y 轴网格
-  const ticks = log ? [0.1,0.25,0.5,1,2,4,10,20,40,100,200,400,1000,2000,5000,10000,50000,100000]
-                    : null;
   if(log){
-    ticks.filter(t=>t>=Math.pow(10,vmin)&&t<=Math.pow(10,vmax)).forEach(t=>{
-      const y=Y(t);
-      g+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#efeee9" stroke-width="1"/>`;
-      g+=`<text x="${PL-6}" y="${y+3.5}" text-anchor="end" font-size="10.5" fill="#8a8980">${t>=1000?(t/1000)+'k':t}</text>`;
+    const tk = [0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100,200,500,
+                1000,2000,5000,10000,50000,100000,1000000];
+    tk.filter(t => t >= Math.pow(10,vmin) && t <= Math.pow(10,vmax)).forEach(t => {
+      const y = Y(t);
+      g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}" stroke="#efeee9" stroke-width="1"/>`;
+      g += `<text x="${PL-6}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="#8a8980">${t>=1000?(t/1000)+'k':t}</text>`;
     });
   }else{
     for(let k=0;k<=4;k++){
-      const v=vmin+(vmax-vmin)*k/4, y=PT+ih-ih*k/4;
-      g+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#efeee9" stroke-width="1"/>`;
-      g+=`<text x="${PL-6}" y="${y+3.5}" text-anchor="end" font-size="10.5" fill="#8a8980">${v.toFixed(opts.dec!=null?opts.dec:0)}</text>`;
+      const v = vmin + (vmax - vmin)*k/4, y = PT + ih - ih*k/4;
+      g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}" stroke="#efeee9" stroke-width="1"/>`;
+      g += `<text x="${PL-6}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="#8a8980">${v.toFixed(opts.dec != null ? opts.dec : 0)}</text>`;
     }
   }
-  // x 轴年份
-  let lastYr=null;
-  for(let i=0;i<n;i++){
-    const yr=dates[i].slice(0,4);
-    if(yr!==lastYr){
-      lastYr=yr;
-      g+=`<text x="${X(i)}" y="${H-8}" text-anchor="middle" font-size="10.5" fill="#8a8980">${yr}</text>`;
-    }
-  }
-  // 零线
-  if(opts.zero && vmin<0 && vmax>0){
-    const y=Y(0);
-    g+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#c9c8c1" stroke-width="1"/>`;
-  }
-  // 曲线
-  seriesList.forEach(s=>{
-    let d='', started=false;
-    for(let i=0;i<n;i++){
-      const v=s.values[i];
-      if(v==null||!isFinite(v)){ started=false; continue; }
-      d += (started?'L':'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
-      started=true;
-    }
-    g+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.w||1.6}" ${s.dash?'stroke-dasharray="4 3"':''}/>`;
+
+  // x 轴刻度：按跨度自动给到「年-月」或「年」
+  pickTicks(dates, opts.maxTicks || 10).forEach(t => {
+    const x = X(t.i).toFixed(1);
+    g += `<line x1="${x}" y1="${PT+ih}" x2="${x}" y2="${PT+ih+4}" stroke="#d7d6cf" stroke-width="1"/>`;
+    g += `<text x="${x}" y="${H-14}" text-anchor="middle" font-size="10.5" fill="#8a8980">${t.label}</text>`;
   });
 
+  // 零线
+  if(opts.zero && vmin < 0 && vmax > 0){
+    const y = Y(0).toFixed(1);
+    g += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#c9c8c1" stroke-width="1"/>`;
+  }
+
+  // 曲线
+  seriesList.forEach(s => {
+    let d = '', started = false;
+    for(let i=0;i<n;i++){
+      const v = s.values[i];
+      if(v == null || !isFinite(v)){ started = false; continue; }
+      d += (started?'L':'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      started = true;
+    }
+    g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.w||1.6}" ${s.dash?'stroke-dasharray="4 3"':''}/>`;
+  });
+
+  // 信号标记
+  const idxOf = new Map();
+  dates.forEach((d,i) => { if(!idxOf.has(d)) idxOf.set(d, i); });
+  (opts.markers || []).forEach(m => {
+    const i = idxOf.get(m.date);
+    if(i == null) return;
+    const v = m.value != null ? m.value : (seriesList[0] && seriesList[0].values[i]);
+    if(v == null || !isFinite(v)) return;
+    g += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="4.5" `
+       + `fill="${m.color}" stroke="#fff" stroke-width="1.6"/>`;
+  });
+
+  // 十字准线（鼠标移入时显示）
+  g += `<g data-cross style="display:none">`
+     + `<line x1="0" y1="${PT}" x2="0" y2="${PT+ih}" stroke="#b9b8b1" stroke-width="1" stroke-dasharray="3 3"/>`
+     + `</g>`;
+
+  if(opts.id){
+    CHARTS[opts.id] = {dates, series:seriesList, X, Y, PL, PT, iw, ih, W, H, n,
+                       markers: opts.markers || [], extra: opts.extra};
+  }
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>`;
+}
+
+/** 注入 SVG 并绑定悬停交互 */
+function mountChart(id, svgStr){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.className = 'chart-host';
+  el.innerHTML = svgStr;
+  bindHover(el, id);
+}
+
+function bindHover(el, id){
+  const svg = el.querySelector('svg');
+  const cfg = CHARTS[id];
+  if(!svg || !cfg) return;
+
+  let tip = el.querySelector('.tip');
+  if(!tip){ tip = document.createElement('div'); tip.className = 'tip'; el.appendChild(tip); }
+  const cross = svg.querySelector('[data-cross]');
+  const line = cross && cross.querySelector('line');
+
+  function hide(){
+    tip.style.display = 'none';
+    if(cross) cross.style.display = 'none';
+  }
+  function move(e){
+    const r = svg.getBoundingClientRect();
+    if(!r.width) return;
+    const k = r.width / cfg.W;                       // viewBox → 像素 的缩放比
+    const sx = (e.clientX - r.left) / k;
+    let i = Math.round((sx - cfg.PL) / cfg.iw * (cfg.n - 1));
+    i = Math.max(0, Math.min(cfg.n - 1, i));
+    const px = cfg.X(i);
+
+    if(cross){
+      cross.style.display = '';
+      line.setAttribute('x1', px); line.setAttribute('x2', px);
+    }
+
+    let html = `<div class="t-date">${cfg.dates[i]}</div>`;
+    cfg.series.forEach(s => {
+      const v = s.values[i];
+      if(v == null || !isFinite(v)) return;
+      html += `<div class="t-row"><span style="color:${s.color}">${esc(s.name)}</span><b>${fmtN(v)}</b></div>`;
+    });
+    if(cfg.extra){
+      (cfg.extra(i) || []).forEach(x => {
+        html += `<div class="t-row"><span style="color:${x.color||'#5f5e5a'}">${esc(x.name)}</span><b>${x.value}</b></div>`;
+      });
+    }
+    (cfg.markers || []).filter(m => m.date === cfg.dates[i]).forEach(m => {
+      html += `<div class="t-act" style="color:${m.color}">${esc(m.label || '信号')}</div>`;
+    });
+
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+
+    // 靠右时翻到左侧，避免溢出容器
+    let L = px * k + 14;
+    if(L + tip.offsetWidth > r.width) L = px * k - tip.offsetWidth - 14;
+    if(L < 0) L = 4;
+    tip.style.left = L + 'px';
+    tip.style.top  = (cfg.PT * k) + 'px';
+  }
+  svg.addEventListener('mousemove', move);
+  svg.addEventListener('mouseleave', hide);
 }
 
 /* ============================================================
@@ -575,25 +717,41 @@ function renderSignal(){
         <div class="n">${toBear>0?'尚有缓冲':'已跌破'}</div></div>
     </div>`;
 
-  // 迷你图
-  const s=Math.max(0,i-249);
-  const sl=[
-    {name:'QQQ', values:qqq.slice(s,i+1), color:'#1c1c1a', w:1.7},
-    {name:'MA200', values:ma.slice(s,i+1), color:'#185fa5', w:1.4},
+  // 信号序列（图表标记与下方表格共用）
+  const bt = backtest({bullTh:4,bearTh:3,dipPct:1,stopPct:40,monthly:1000,reentry:'strict',startIdx:0});
+
+  // 迷你图：近 250 个交易日
+  const s = Math.max(0, i-249);
+  const winDates = dates.slice(s, i+1);
+  const sl = [
+    {name:'QQQ',   values:qqq.slice(s,i+1), color:'#1c1c1a', w:1.7},
+    {name:'MA200', values:ma.slice(s,i+1),  color:'#185fa5', w:1.4},
     {name:'牛市线', values:ma.slice(s,i+1).map(v=>v==null?null:v*bull), color:'#c0392b', w:1, dash:true},
     {name:'熊市线', values:ma.slice(s,i+1).map(v=>v==null?null:v*bear), color:'#0f6e56', w:1, dash:true},
   ];
-  $('#chart-signal').innerHTML = svgLine(sl, dates.slice(s,i+1), {height:250});
+  // 只标出落在可视窗口内的信号
+  const markers = bt.trades
+    .filter(t => t.date >= winDates[0] && t.date <= winDates[winDates.length-1])
+    .map(t => ({date:t.date, color:actionColor(t.act), label:t.act}));
+
+  mountChart('chart-signal', svgLine(sl, winDates, {
+    // 250 个交易日约跨 13 个自然月。刻度位给足，才能每个月都标出来而不是隔月标。
+    id:'chart-signal', height:250, maxTicks:16, markers,
+    // TQQQ 不画进这张图（量纲差太多），但放进 tooltip
+    extra: k => {
+      const tv = tqqq[s+k];
+      return tv == null ? [] : [{name:'TQQQ', value:fmtN(tv), color:'#1c1c1a'}];
+    }
+  }));
 
   // 近期信号
-  const bt = backtest({bullTh:4,bearTh:3,dipPct:1,stopPct:40,monthly:1000,reentry:'strict',startIdx:0});
   const recent = bt.trades.slice(-14).reverse();
   $('#recent-signals').innerHTML = recent.length ? `
     <div class="scroll"><table>
       <thead><tr><th>日期</th><th>动作</th><th>TQQQ 价格</th><th>股数</th><th>金额</th><th>说明</th></tr></thead>
       <tbody>${recent.map(t=>`<tr>
         <td class="mono">${t.date}</td>
-        <td><span class="tag ${/买入|加仓/.test(t.act)?'tag-b':'tag-s'}">${esc(t.act)}</span></td>
+        <td>${actionTag(t.act)}</td>
         <td class="mono">${fmtN(t.px)}</td><td class="mono">${fmtN(t.shares,2)}</td>
         <td class="mono">${fmtMoney(t.amt)}</td>
         <td class="muted">${esc(t.note||'')}</td></tr>`).join('')}
@@ -651,15 +809,16 @@ function runBacktest(){
   const tmap = new Map(holdT.dates.map((d,i)=>[d,holdT.equity[i]]));
   sl.push({name:'QQQ', values:dates.map(d=>qmap.has(d)?qmap.get(d):null), color:'#185fa5', w:1.4});
   sl.push({name:'TQQQ', values:dates.map(d=>tmap.has(d)?tmap.get(d):null), color:'#8a8980', w:1.4, dash:true});
-  $('#chart-equity').innerHTML = svgLine(sl, dates, {log:true, height:280});
+  mountChart('chart-equity', svgLine(sl, dates, {id:'chart-equity', log:true, height:280, maxTicks:10}));
 
   // 回撤曲线
   const ddSeries = bt.twr.map((v,i)=>{
     let peak = Math.max.apply(null, bt.twr.slice(0,i+1));
     return v/peak - 1;
   });
-  $('#chart-dd').innerHTML = svgLine(
-    [{name:'回撤', values:ddSeries, color:'#0f6e56', w:1.5}], dates, {height:190, dec:0, zero:true});
+  mountChart('chart-dd', svgLine(
+    [{name:'回撤', values:ddSeries, color:'#0f6e56', w:1.5}], dates,
+    {id:'chart-dd', height:190, dec:0, zero:true, maxTicks:10}));
 
   // 明细
   const rows = bt.trades.slice().reverse();
@@ -667,7 +826,7 @@ function runBacktest(){
     <thead><tr><th>日期</th><th>动作</th><th>TQQQ 价格</th><th>股数</th><th>金额</th><th>说明</th></tr></thead>
     <tbody>${rows.map(t=>`<tr>
       <td class="mono">${t.date}</td>
-      <td><span class="tag ${/买入|加仓/.test(t.act)?'tag-b':'tag-s'}">${esc(t.act)}</span></td>
+      <td>${actionTag(t.act)}</td>
       <td class="mono">${fmtN(t.px)}</td><td class="mono">${fmtN(t.shares,2)}</td>
       <td class="mono">${fmtMoney(t.amt)}</td>
       <td class="muted">${esc(t.note||'')}</td></tr>`).join('')}</tbody>`
