@@ -133,39 +133,74 @@ scrub(){
   printf '%s' "$s"
 }
 
-# ---------- 3. 推送 ----------
-say "3/5 推送到 GitHub"
+# ---------- 3. 先同步远端，再推送 ----------
+# Actions 每天会提交新数据，本地很容易落后。直接 push 会撞上 rejected，
+# 而这类失败是确定性的（重试多少次都一样），所以先 fetch + rebase。
+say "3/5 同步并推送到 GitHub"
 git branch -M main 2>/dev/null
+
+behind=""
+if retry 4 git "${GIT_AUTH[@]}" fetch origin main; then
+  behind=$(git rev-list --count HEAD..FETCH_HEAD 2>/dev/null || echo "")
+  if [ -n "$behind" ] && [ "$behind" != "0" ]; then
+    info "远端领先 $behind 个提交（多半是 Actions 的数据更新），先 rebase"
+    if ! retry 4 git rebase FETCH_HEAD; then
+      bad "rebase 失败，请手动处理冲突后再推送"
+      echo "  $(scrub "$LAST_ERR")"
+      exit 1
+    fi
+    ok "已 rebase 到远端最新"
+  fi
+else
+  info "fetch 失败（网络抖动），直接尝试推送"
+fi
+
 if retry 6 git "${GIT_AUTH[@]}" push -u origin main; then
   ok "推送成功"
 else
   bad "推送失败（已重试 6 次）"
   echo "  最后错误：$(scrub "$LAST_ERR")"
   echo "  常见原因：token 权限不足（需 Contents:RW + Workflows:RW）/ 仓库不存在 /"
-  echo "            远程已有内容（需先 git pull --rebase）"
+  echo "            本地与远端存在冲突（手动 git pull --rebase 后重试）"
   exit 1
 fi
 
 # ---------- 4. 开启 Pages ----------
-say "4/5 开启 GitHub Pages"
+say "4/5 检查 GitHub Pages"
+PAGES_URL="https://${OWNER}.github.io/${REPO}/"
 if [ -n "${GH_TOKEN:-}" ] && [ "$https_ok" = 1 ]; then
-  resp=""; for ((i=1;i<=5;i++)); do
-    resp=$(curl -s --max-time 20 -X POST \
-      -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${OWNER}/${REPO}/pages" \
-      -d '{"source":{"branch":"main","path":"/"}}' 2>/dev/null)
-    [ -n "$resp" ] && break
+  # 先查现状。GET 只需 Contents 读权限，POST 才要 Pages 写权限，
+  # 所以「没权限」和「还没开」要分开判断，别把已上线的站点说成没开。
+  stat=""; for ((i=1;i<=5;i++)); do
+    stat=$(curl -s --max-time 20 -H "Authorization: Bearer ${GH_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/${OWNER}/${REPO}/pages" 2>/dev/null)
+    [ -n "$stat" ] && break
     sleep 4
   done
-  if echo "$resp" | grep -qi '"html_url"\|already exists'; then
-    ok "Pages 已开启：https://${OWNER}.github.io/${REPO}/"
-    info "首次部署需 1~2 分钟"
+  if echo "$stat" | grep -qi '"html_url"'; then
+    ok "Pages 已启用：$PAGES_URL"
   else
-    info "自动开启未成功，请手动到 Settings → Pages → Source 选 main / (root)"
-    echo "    返回：$(scrub "${resp:0:200}")"
+    resp=""; for ((i=1;i<=5;i++)); do
+      resp=$(curl -s --max-time 20 -X POST \
+        -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/${OWNER}/${REPO}/pages" \
+        -d '{"source":{"branch":"main","path":"/"}}' 2>/dev/null)
+      [ -n "$resp" ] && break
+      sleep 4
+    done
+    if echo "$resp" | grep -qi '"html_url"\|already exists'; then
+      ok "Pages 已开启：$PAGES_URL"
+      info "首次部署需 1~2 分钟"
+    else
+      info "自动开启未成功（多半是 token 缺 Pages:Read and write 权限），手动开即可："
+      echo "    https://github.com/${OWNER}/${REPO}/settings/pages"
+      echo "    Source → Deploy from a branch；Branch → main，目录 → /(root)，保存"
+      echo "    返回：$(scrub "${resp:0:160}")"
+    fi
   fi
 else
-  info "跳过自动开启。请手动完成一次："
+  info "跳过。请手动完成一次："
   echo "    https://github.com/${OWNER}/${REPO}/settings/pages"
   echo "    Source → Deploy from a branch；Branch → main，目录 → /(root)，保存"
 fi
