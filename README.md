@@ -165,9 +165,10 @@ Branch 选 `main`、目录选 `/(root)`，保存。
 
 ```
 index.html                        前端（单文件，零依赖，可离线运行）
-scripts/fetch_data.py             数据抓取 + 自检
+scripts/fetch_data.py             数据抓取 + 自检 + 交易日历新鲜度判定
 scripts/test_backtest.js          回测引擎冒烟测试（node）
 scripts/test_charts.js            图表渲染逻辑测试（node）
+scripts/test_calendar.py          交易日历 / 新鲜度判定测试（python）
 scripts/check_frontend.js         前端静态检查（node）
 data/market.json  data/market.js  构建期数据快照
 requirements.txt                  仅抓取脚本需要
@@ -178,6 +179,7 @@ requirements.txt                  仅抓取脚本需要
 
 ```bash
 python3 scripts/fetch_data.py
+python3 scripts/test_calendar.py   # NYSE 假日 / 落后交易日 / 时区截止
 node scripts/test_backtest.js      # 回测数学 + 参数敏感性
 node scripts/test_charts.js        # 时间刻度 / 配色 / 标记 / 悬停配置
 node scripts/check_frontend.js     # 语法 / DOM 选择器 / 资源完整性
