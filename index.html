@@ -415,12 +415,20 @@ function backtest(p){
   const irr = xirr(flows, finalValue, totalT);
   const dd = twrAndDD(equity, deposits, subDates);
 
+  // 本月额度状态：解释「QQQ 跌了 ≥1% 为什么没买」——多数情况是现金已投完。
+  // 每月只在首个交易日入金一次，用完就得等下个月，这是策略的现金约束，不是漏信号。
+  const lastMo = subDates.length ? subDates[subDates.length - 1].slice(0, 7) : '';
+  const lastBuy = trades.length ? trades[trades.length - 1] : null;
+  const spentThisMonth = !!(lastBuy && /买入|加仓|建仓/.test(lastBuy.act)
+                            && lastBuy.date.slice(0, 7) === lastMo);
+
   return {
     trades, equity, deposits, dates:subDates, twr:dd.twr,
     invested, finalValue, irr,
     maxDD:dd.maxDD, longestYears:dd.longestYears,
-    holding, shares, start:subDates[0], end:subDates[subDates.length-1],
-    years:totalT,
+    holding, shares, cash, start:subDates[0], end:subDates[subDates.length-1],
+    years:totalT, spentThisMonth,
+    lastBuyDate: lastBuy ? lastBuy.date : null,
   };
 }
 
@@ -733,6 +741,25 @@ function renderSignal(){
 
   // 信号序列（图表标记与下方表格共用）
   const bt = backtest({bullTh:4,bearTh:3,dipPct:1,stopPct:40,monthly:1000,reentry:'strict',startIdx:0});
+
+  // 月度额度状态 —— 解释「QQQ 明明跌了 ≥1%，为什么没有加仓」。
+  // 绝大多数情况是本月现金已经投完：策略每月只在首个交易日入金一次，
+  // 花完就得等下个月，所以月中再怎么跌也不会触发买入。
+  {
+    const MONTHLY = 1000;
+    const lastMo = bt.end.slice(0, 7);
+    const [ly, lm] = lastMo.split('-').map(Number);
+    const nextMo = lm === 12 ? `${ly + 1}-01` : `${ly}-${String(lm + 1).padStart(2, '0')}`;
+    const nextDep = dates.find(d => d.slice(0, 7) === nextMo) || '—';
+    const txt = bt.spentThisMonth
+      ? `本月 <b>$${MONTHLY.toLocaleString()}</b> 已于 <b>${bt.lastBuyDate}</b> 投入 TQQQ，` +
+        `账户现金已用完。下次入金 <b>${nextDep}</b>；在那之前，即使 QQQ 单日跌 ≥1% ` +
+        `也<b>不会加仓</b> —— 没有现金可投。这是策略的现金约束，不是漏掉信号。`
+      : `本月 <b>$${MONTHLY.toLocaleString()}</b> 尚未投入（当前待投现金 ` +
+        `<b>${fmtMoney(bt.cash)}</b>）。等待 QQQ 单日跌 ≥1% 的回调，或熊转牛突破时立即买入。`;
+    $('#signal-box').insertAdjacentHTML('beforeend',
+      `<div class="note">${txt}</div>`);
+  }
 
   // 迷你图：近 250 个交易日
   const s = Math.max(0, i-249);
