@@ -56,3 +56,16 @@ jobs:
           git add data/market.json data/market.js
           git commit -m "chore: 更新行情数据 $(date -u +'%Y-%m-%d')"
           git push
+
+      - name: 数据滞后告警
+        if: always()
+        run: |
+          # 脚本内部已按交易日历重试约 11 分钟，走到这里仍是 stale 说明是
+          # 上游数据源的问题，不是偶发抖动。把 run 标红让人看见，
+          # 但数据已经在上面提交过了 —— 前端同时会显示红色「数据滞后」提示。
+          if grep -q '"stale":true' data/market.json; then
+            echo "::error::行情数据落后于美股最新已收盘交易日（数据源未给出最新行情）"
+            grep -o '"stale_reason":"[^"]*"' data/market.json || true
+            exit 1
+          fi
+          echo "数据新鲜度正常"

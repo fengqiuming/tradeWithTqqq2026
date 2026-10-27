@@ -37,8 +37,9 @@ import re
 import sys
 import time
 import urllib.request
-from datetime import datetime
+from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "market.json"
@@ -51,7 +52,6 @@ UA = (
 # ---------- 校验阈值 ----------
 MIN_QQQ_BARS = 1200          # 腾讯兜底上限约 1350 根，门槛设在其下
 MIN_TQQQ_BARS = 250
-MAX_STALE_DAYS = 10          # 数据新鲜度
 JUMP_WARN = 0.35             # 单日 |变动| 超过 35% 记一次异常跳变
 JUMP_MAX_COUNT = 5           # 超过这么多次 → 判定复权未生效
 RET_RATIO_MIN = 0.3          # TQQQ 总回报 / QQQ 总回报 合理下界
@@ -61,6 +61,103 @@ MAX_GAP_DAYS = 10            # 相邻交易日最大日历间隔（覆盖长假�
 TRADING_DAYS_PER_YEAR = 252
 MA200_WARMUP = 300           # TQQQ 起点之前保留多少根 QQQ 用于均线预热
 TX_MAX_BARS = 1350           # 腾讯单标的硬上限（1400 起报 limit error）
+
+# ---------- 新鲜度 ----------
+# 数据滞后于预期交易日时的重试节奏（秒）。Yahoo 偶发晚给最新行情，
+# 干等一次是没用的，得隔开时间反复试。总计约 11 分钟，远小于 Actions 上限。
+FRESH_RETRY_WAITS = [0, 120, 240, 300]
+ET = ZoneInfo("America/New_York")
+MARKET_CLOSE_BUFFER = dtime(17, 0)   # 17:00 ET 之后才把「今天」当作预期交易日
+
+
+# ============================================================
+# 美股交易日历（NYSE 规则近似，用于判断数据是否滞后）
+# ============================================================
+def _easter(year: int) -> date:
+    """匿名格里高利算法，用于推算耶稣受难日。"""
+    a = year % 19
+    b, c = year // 100, year % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+    """某月第 n 个星期几（weekday: 0=周一）。"""
+    d = date(year, month, 1)
+    d += timedelta(days=(weekday - d.weekday()) % 7)
+    return d + timedelta(weeks=n - 1)
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    """某月最后一个星期几。"""
+    d = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year, 12, 31)
+    return d - timedelta(days=(d.weekday() - weekday) % 7)
+
+
+def nyse_holidays(year: int) -> set[date]:
+    """NYSE 全年休市日（含周末顺延）。规则固定，故可推算任意年份。"""
+    easter = _easter(year)
+    raw = {
+        date(year, 1, 1),
+        easter - timedelta(days=2),            # 耶稣受难日
+        _nth_weekday(year, 1, 0, 3),           # MLK：1 月第 3 个周一
+        _nth_weekday(year, 2, 0, 3),           # 华盛顿日：2 月第 3 个周一
+        _last_weekday(year, 5, 0),             # 阵亡将士：5 月最后周一
+        date(year, 6, 19),                     # 六月节
+        date(year, 7, 4),                      # 独立日
+        _nth_weekday(year, 9, 0, 1),           # 劳工节：9 月第 1 个周一
+        _nth_weekday(year, 10, 0, 2),          # 哥伦布日：10 月第 2 个周一
+        date(year, 11, 11),                    # 退伍军人节
+        _nth_weekday(year, 11, 3, 4),          # 感恩节：11 月第 4 个周四
+        date(year, 12, 25),                    # 圣诞节
+    }
+    obs: set[date] = set()
+    for h in raw:
+        if h.weekday() == 5:                   # 落在周六 → 提前至周五
+            obs.add(h - timedelta(days=1))
+        elif h.weekday() == 6:                 # 落在周日 → 顺延至周一
+            obs.add(h + timedelta(days=1))
+        else:
+            obs.add(h)
+    return obs
+
+
+def expected_last_trading_day(now: datetime | None = None) -> date:
+    """当前时刻预期数据应覆盖到的最近一个已收盘交易日。
+
+    - 以美东时间判断；17:00 ET 之前（收盘后留 1 小时缓冲），
+      预期止于上一个交易日。
+    - 节假日表只用于「预期」，算错顶多触发几次无谓重试或一条滞后告警，
+      不会污染数据，所以允许近似。
+    """
+    now = now or datetime.now(ET)
+    d = now.date()
+    if now.time() < MARKET_CLOSE_BUFFER:
+        d -= timedelta(days=1)
+    hol = nyse_holidays(d.year - 1) | nyse_holidays(d.year) | nyse_holidays(d.year + 1)
+    while d.weekday() >= 5 or d in hol:
+        d -= timedelta(days=1)
+    return d
+
+
+def trading_days_behind(latest: str, expected: date) -> int:
+    """latest（YYYY-MM-DD）落后 expected 几个交易日；0 表示不落后。"""
+    d = expected
+    n = 0
+    while d.isoformat() > latest and n < 30:
+        d -= timedelta(days=1)
+        while d.weekday() >= 5 or d in nyse_holidays(d.year):
+            d -= timedelta(days=1)
+        n += 1
+    return n
 
 
 def log(msg: str = "") -> None:
@@ -99,9 +196,23 @@ def fetch_yfinance() -> list[dict]:
             if df is None or df.empty:
                 log(f"  {sym}: 返回空")
                 return []
+            if "Close" in df.columns:
+                df = df[df["Close"].notna()]
             col = "Adj Close" if "Adj Close" in df.columns else "Close"
-            s = df[col].dropna()
+            if col == "Adj Close" and df["Adj Close"].isna().any():
+                # 关键：Yahoo 最新一两根的复权价偶尔比原始价晚算出来。
+                # 直接 dropna() 会把最新交易日整行吞掉 —— 表现为「数据永远差一天」
+                # 却没有任何报错。复权因子以最新一日为基准（恒等于 1），
+                # 因此尾部缺失用 Close 补齐是精确的，不是近似。
+                n_fill = int(df["Adj Close"].isna().sum())
+                tail_dates = [d.strftime("%Y-%m-%d") for d in df.index[df["Adj Close"].isna()]]
+                df["Adj Close"] = df["Adj Close"].fillna(df["Close"])
+                log(f"  {sym}: {n_fill} 根 Adj Close 缺失，用 Close 补齐（尾部复权因子=1）"
+                    f" → {tail_dates[-3:]}")
+            s = df[col]
             out[sym] = {d.strftime("%Y-%m-%d"): float(v) for d, v in s.items()}
+            ks = sorted(out[sym])
+            log(f"  {sym}: {len(ks)} 根，尾部 {ks[-3]} … {ks[-1]}")
     except Exception as exc:  # noqa: BLE001
         log(f"  失败: {exc}")
         return []
@@ -214,7 +325,9 @@ def fetch_cn_fallback() -> list[dict]:
         if not qqq or not tqqq:
             log(f"  {label} 数据为空")
             continue
-        log(f"  {label}: QQQ {len(qqq)} 根 / TQQQ {len(tqqq)} 根")
+        for nm, s in (("QQQ", qqq), ("TQQQ", tqqq)):
+            ks = sorted(s)
+            log(f"  {label} {nm}: {len(ks)} 根，尾部 … {ks[-1]}")
         cands.append({
             "QQQ": qqq, "TQQQ": tqqq,
             "meta": {
@@ -257,13 +370,18 @@ def validate(qqq: dict[str, float], tqqq: dict[str, float]) -> tuple[list[str], 
     if errs:
         return errs, warns
 
-    # 3) 新鲜度
+    # 3) 新鲜度 —— 按美股交易日历算，而不是拍脑袋的日历天数。
+    #    旧版用「日历天数 > 4 才告警」：周一晚上拿到周五数据恰好 4 天，
+    #    正好从缝里漏过去，还挂着「校验通过」的牌子。
+    #    这里只做硬性兜底（落后太多直接拒收），细粒度的滞后判定交给
+    #    build_payload()，它会把 stale / 落后几个交易日写进 meta 给前端用。
     latest = max(tqqq) if tqqq else max(qqq)
-    age = (datetime.now() - _parse(latest)).days
-    if age > MAX_STALE_DAYS:
-        errs.append(f"数据过期：最新交易日 {latest}，距今 {age} 天")
-    elif age > 4:
-        warns.append(f"数据略有延迟，最新交易日 {latest}（{age} 天前）")
+    exp = expected_last_trading_day()
+    behind = trading_days_behind(latest, exp)
+    if behind > 5:
+        errs.append(f"数据过期：行情止于 {latest}，预期应到 {exp.isoformat()}，落后 {behind} 个交易日")
+    elif behind > 0:
+        warns.append(f"数据略有延迟：行情止于 {latest}，落后 {behind} 个交易日")
 
     # 4) 序列连续性 —— 抓「根数看着够、实际有整段空洞」
     for name, series in (("QQQ", qqq), ("TQQQ", tqqq)):
@@ -343,12 +461,28 @@ def build_payload(qqq: dict[str, float], tqqq: dict[str, float],
         start = max(0, dates.index(t_dates[0]) - MA200_WARMUP)
         dates = dates[start:]
 
+    # 新鲜度：对照美股交易日历，而不是拍脑袋的日历天数。
+    # 周末 / 假期不算滞后 —— 之前的版本用「日历天数 > 4 天才告警」，
+    # 周一晚上拿到周五数据恰好 4 天，正好从缝里漏过去。
+    expected = expected_last_trading_day()
+    latest = max(t_dates[-1], dates[-1])
+    behind = trading_days_behind(latest, expected)
+    stale = behind > 0
+    stale_reason = ""
+    if stale:
+        stale_reason = (f"行情止于 {latest}，按美股交易日历预期应到 {expected.isoformat()}，"
+                        f"落后 {behind} 个交易日")
+        warns = warns + [f"⚠️ 数据滞后：{stale_reason}"]
+
     return {
         "meta": {
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "source": source,
             "adjust": meta.get("adjust", "unknown"),
             "degraded": bool(meta.get("degraded")),
+            "stale": stale,
+            "stale_reason": stale_reason,
+            "expected_last": expected.isoformat(),
             "note": meta.get("note", ""),
             "qqq": {"start": dates[0], "end": dates[-1], "bars": len(dates)},
             "tqqq": {"start": t_dates[0], "end": t_dates[-1], "bars": len(t_dates)},
@@ -363,18 +497,8 @@ def build_payload(qqq: dict[str, float], tqqq: dict[str, float],
 
 
 # ============================================================
-def main() -> int:
-    log("=" * 62)
-    log("TQQQ 交易指引工具 · 行情数据抓取")
-    log("=" * 62)
-
-    providers = [
-        ("yfinance", fetch_yfinance),
-        ("alphavantage", fetch_alphavantage),
-        ("cn-fallback", fetch_cn_fallback),
-    ]
-
-    chosen = None
+def _pick_candidate(providers) -> tuple | None:
+    """遍历所有数据源与候选，返回第一个通过校验的。"""
     for pname, provider in providers:
         log(f"\n[数据源] {pname}")
         try:
@@ -398,11 +522,47 @@ def main() -> int:
                     log(f"    [校验失败] {e}")
                 log("    → 丢弃该候选")
                 continue
-            chosen = (pname, qqq, tqqq, warns, cand.get("meta", {}))
             log(f"  [通过] 采用 {pname} 候选 {idx}")
+            return (pname, qqq, tqqq, warns, cand.get("meta", {}))
+    return None
+
+
+def main() -> int:
+    log("=" * 62)
+    log("TQQQ 交易指引工具 · 行情数据抓取")
+    log("=" * 62)
+
+    providers = [
+        ("yfinance", fetch_yfinance),
+        ("alphavantage", fetch_alphavantage),
+        ("cn-fallback", fetch_cn_fallback),
+    ]
+
+    # 数据源失败或数据滞后都可能是一时抖动（Yahoo 偶发晚给最新行情，
+    # 国内接口间歇断连），所以隔开时间反复试，而不是试一次就认命。
+    chosen = None
+    stale = False
+    for attempt, wait in enumerate(FRESH_RETRY_WAITS):
+        if wait:
+            log(f"\n--- 等待 {wait}s 后第 {attempt + 1} 次尝试 ---")
+            time.sleep(wait)
+        chosen = _pick_candidate(providers)
+        if chosen is None:
+            log("\n  本轮无任何候选通过校验")
+            stale = True
+            continue
+        name, qqq, tqqq, warns, meta = chosen
+        latest = max(sorted(tqqq)[-1], sorted(qqq)[-1])
+        expected = expected_last_trading_day()
+        behind = trading_days_behind(latest, expected)
+        if behind <= 0:
+            stale = False
             break
-        if chosen:
-            break
+        stale = True
+        log(f"\n  [滞后] 行情止于 {latest}，预期应到 {expected.isoformat()}，"
+            f"落后 {behind} 个交易日")
+    else:
+        log("\n  多次尝试后仍滞后 —— 接受当前数据，但会在输出中标记 stale=true")
 
     if chosen is None:
         log("\n所有数据源均未通过校验 —— 不生成 market.json")
@@ -435,10 +595,14 @@ def main() -> int:
     log(f"\n已写入 {OUT.relative_to(ROOT)}  ({size_kb:.0f} KB)")
     log(f"  QQQ  {m['qqq']['start']} → {m['qqq']['end']}  ({m['qqq']['bars']} 根)")
     log(f"  TQQQ {m['tqqq']['start']} → {m['tqqq']['end']}  ({m['tqqq']['bars']} 根)")
+    log(f"  预期最近交易日 {m['expected_last']}，行情截止 {max(m['qqq']['end'], m['tqqq']['end'])}")
     log(f"  回测起点 {m['backtest_from']}（TQQQ 数据起点，另需 MA200 预热）")
     if m["degraded"]:
         log("  ⚠️  降级模式：国内兜底源，历史深度受限")
         log(f"     {m['note']}")
+    if m.get("stale"):
+        log("  ⚠️  数据滞后： market.json 已标记 stale=true，前端会显示红色滞后提示")
+        log(f"     {m.get('stale_reason', '')}")
     return 0
 
 

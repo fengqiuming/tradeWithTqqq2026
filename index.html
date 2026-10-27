@@ -38,6 +38,7 @@ h3{font-size:13px;font-weight:600;margin:18px 0 8px;color:var(--tx2)}
 .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:600}
 .pill-ok{background:var(--down-bg);color:var(--down)}
 .pill-warn{background:var(--warn-bg);color:var(--warn)}
+.pill-stale{background:var(--up-bg);color:var(--up);border:1px solid var(--up-line)}
 
 /* tabs */
 .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}
@@ -658,15 +659,28 @@ function bindHover(el, id){
 function renderDataBar(){
   const m=DATA.meta;
   const gen=new Date(m.generated_at);
+  // 「生成于」是快照时间，「行情截止」是数据实际覆盖到的交易日。
+  // 两者分开显示：生成时间新 ≠ 数据新，之前混在一句话里造成了误读。
+  const stale = !!m.stale;
   const html = `
     <span>数据区间 <b>${m.qqq.start}</b> → <b>${m.qqq.end}</b></span>
+    <span>行情截止 <b>${m.qqq.end > m.tqqq.end ? m.qqq.end : m.tqqq.end}</b></span>
     <span>QQQ <b>${m.qqq.bars}</b> 根 / TQQQ <b>${m.tqqq.bars}</b> 根</span>
     <span>来源 <b>${esc(m.source)}</b></span>
-    <span>更新于 <b>${gen.toLocaleString('zh-CN',{hour12:false})}</b></span>
-    ${m.degraded ? '<span class="pill pill-warn">降级模式</span>' : '<span class="pill pill-ok">校验通过</span>'}
+    <span>生成于 <b>${gen.toLocaleString('zh-CN',{hour12:false})}</b></span>
+    ${stale ? '<span class="pill pill-stale">数据滞后</span>'
+            : m.degraded ? '<span class="pill pill-warn">降级模式</span>'
+                         : '<span class="pill pill-ok">校验通过</span>'}
   `;
   $('#databar').innerHTML = html;
-  if(m.degraded){
+  if(stale){
+    $('#databar').insertAdjacentHTML('beforeend',
+      `<div style="flex-basis:100%;color:#8f2020;background:var(--up-bg);
+        border:1px solid var(--up-line);border-radius:7px;padding:8px 10px;margin-top:2px">
+       ⚠️ ${esc(m.stale_reason || '行情数据落后于最新已收盘交易日')}
+       ${m.expected_last ? `（预期应到 ${esc(m.expected_last)}）` : ''}
+       。Actions 会自动重试；若长时间未恢复，请到仓库手动 Run workflow。</div>`);
+  }else if(m.degraded){
     $('#databar').insertAdjacentHTML('beforeend',
       `<div style="flex-basis:100%;color:#6b4700;background:var(--warn-bg);
         border:1px solid var(--warn-line);border-radius:7px;padding:8px 10px;margin-top:2px">
