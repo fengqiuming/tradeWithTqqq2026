@@ -36,6 +36,15 @@ check('止损清仓为琥珀（与买卖区分）',
   C('止损清仓') === '#8a5a00' && C('止损清仓') !== C('牛转熊清仓'), C('止损清仓'));
 check('标签中带颜色', /style="color:#c0392b/.test(M.actionTag('回调加仓')), M.actionTag('回调加仓'));
 
+// 「错过」= 信号成立但账户无现金，是入金参考点，用粉红并必须与红/绿/琥珀都区分开
+const PINK = '#d4537e';
+check('错过信号为粉红', C('错过·回调买入') === PINK && C('错过·熊转牛') === PINK, PINK);
+check('粉红与买入红不同', C('错过·回调买入') !== C('回调加仓'));
+check('粉红不会被「加仓」关键字抢先匹配（顺序敏感）',
+  C('错过·回调买入') === PINK, C('错过·回调买入'));
+check('四色两两互不相同',
+  new Set([C('回调加仓'), C('牛转熊清仓'), C('止损清仓'), C('错过·回调买入')]).size === 4);
+
 console.log('\n=== 2. 时间刻度自适应 ===');
 const dates = DATA.dates;
 const w250 = dates.slice(-250);
@@ -61,15 +70,21 @@ const mk = [
   { date: dates[n - 200], color: C('熊转牛买入'), label: '熊转牛买入' },
   { date: dates[n - 150], color: C('牛转熊清仓'), label: '牛转熊清仓' },
   { date: dates[n - 100], color: C('止损清仓'), label: '止损清仓' },
+  // 「错过」用更小半径，避免 299 个粉点盖过真实成交
+  { date: dates[n - 60], color: C('错过·回调买入'), label: '错过·回调买入', r: 3.4 },
 ];
 const svg = M.svgLine([{ name: 'QQQ', values: q.slice(-250), color: '#1c1c1a' }],
   dates.slice(-250), { id: 't1', height: 250, maxTicks: 12, markers: mk });
 
-const circles = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="4.5" fill="(#[0-9a-f]{6})"/gi)];
-check('渲染出 3 个标记点', circles.length === 3, circles.length + ' 个');
+const circles = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)" fill="(#[0-9a-f]{6})"/gi)];
+check('渲染出 4 个标记点', circles.length === 4, circles.length + ' 个');
 check('标记颜色对应动作',
-  circles.map(c => c[3]).join(',') === [C('熊转牛买入'), C('牛转熊清仓'), C('止损清仓')].join(','),
-  circles.map(c => c[3]).join(' '));
+  circles.map(c => c[4]).join(',') ===
+    [C('熊转牛买入'), C('牛转熊清仓'), C('止损清仓'), C('错过·回调买入')].join(','),
+  circles.map(c => c[4]).join(' '));
+check('「错过」用更小半径（3.4 vs 4.5）',
+  circles[circles.length - 1][3] === '3.4' && circles[0][3] === '4.5',
+  `错过 r=${circles[3][3]}，成交 r=${circles[0][3]}`);
 check('标记坐标在画布内',
   circles.every(c => +c[1] >= 56 && +c[1] <= 966 && +c[2] >= 14 && +c[2] <= 250));
 check('窗口外的信号被过滤掉',
@@ -81,17 +96,23 @@ check('包含 data-cross 准线组', svg.includes('data-cross'));
 check('准线默认隐藏', /data-cross[^>]*style="display:none"/.test(svg));
 check('悬停配置已注册', !!M.CHARTS['t1'] && M.CHARTS['t1'].n === 250);
 check('配置含日期与标记',
-  Array.isArray(M.CHARTS['t1'].dates) && M.CHARTS['t1'].markers.length === 3);
+  Array.isArray(M.CHARTS['t1'].dates) && M.CHARTS['t1'].markers.length === 4);
 
 console.log('\n=== 5. tooltip 数据完整性 ===');
 const cfg = M.CHARTS['t1'];
-const extras = [{ name: 'TQQQ', value: '12.34', color: '#1c1c1a' }];
+const extras = [{ name: 'TQQQ', value: '12.34', color: '#1c1c1a', chg: '-2.9%' }];
 const svg2 = M.svgLine([{ name: 'QQQ', values: q.slice(-250), color: '#1c1c1a' }],
   dates.slice(-250), { id: 't2', markers: mk, extra: () => extras });
 check('extra 回调被存入配置', typeof M.CHARTS['t2'].extra === 'function');
 check('extra 返回 TQQQ 行', M.CHARTS['t2'].extra(0)[0].name === 'TQQQ');
 check('每条序列都有 name（tooltip 要用）',
   M.CHARTS['t2'].series.every(s => typeof s.name === 'string' && s.name.length > 0));
+check('extra 支持当日涨跌字段', M.CHARTS['t2'].extra(0)[0].chg === '-2.9%');
+check('showChg 只对指定序列开启（均线/阈值线不显示涨跌）',
+  M.svgLine([
+    { name: 'QQQ', values: [1, 2], color: '#000', showChg: true },
+    { name: 'MA200', values: [1, 2], color: '#00f' },
+  ], ['2020-01-01', '2020-01-02'], { id: 't3' }) !== '');
 
 console.log('\n=== 6. 边界情况 ===');
 check('空数据返回占位', M.svgLine([], [], {}).includes('empty'));

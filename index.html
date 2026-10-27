@@ -109,6 +109,7 @@ button.danger{color:var(--up);border-color:var(--up-line)}
 .tip .t-row{display:flex;justify-content:space-between;gap:18px}
 .tip .t-row span{color:var(--tx2)}
 .tip .t-row b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--tx)}
+.tip .t-chg{font-weight:400;font-size:11px;color:var(--tx2);margin-left:2px}
 .tip .t-act{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft);font-weight:600}
 .empty{padding:28px;text-align:center;color:var(--tx3);font-size:13px}
 .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600}
@@ -142,10 +143,12 @@ button.danger{color:var(--up);border-color:var(--up-line)}
       <span><i style="background:#c0392b"></i>牛市线 MA200×1.04</span>
       <span><i style="background:#0f6e56"></i>熊市线 MA200×0.97</span>
       <span><i class="dot" style="background:#c0392b"></i>买入 / 加仓</span>
+      <span><i class="dot" style="background:#d4537e"></i>错过（无现金 · 入金参考）</span>
       <span><i class="dot" style="background:#0f6e56"></i>牛转熊清仓</span>
       <span><i class="dot" style="background:#8a5a00"></i>止损清仓</span>
     </div>
-    <div class="note">鼠标在图上移动可查看当日 QQQ、TQQQ、MA200 的数值；圆点为信号触发点，颜色与下方表格一致。</div>
+    <div class="note">鼠标在图上移动可查看当日数值与涨跌；圆点为信号触发点，颜色与下方表格一致。
+      粉红点表示信号成立但账户已无现金，可作为自行入金的时机参考。</div>
   </div>
   <div class="card">
     <h2>近期信号触发记录</h2>
@@ -195,6 +198,7 @@ button.danger{color:var(--up);border-color:var(--up-line)}
   <div class="card">
     <h2>交易明细</h2>
     <div class="scroll"><table id="bt-trades"></table></div>
+    <div class="note" id="bt-trades-note"></div>
   </div>
 </div>
 
@@ -333,7 +337,7 @@ function backtest(p){
 
   let cash=0, shares=0, peak=0, regime=null, locked=false, holding=false;
   let invested=0;
-  const trades=[], equity=[], deposits=[], subDates=[], flows=[];
+  const trades=[], missed=[], equity=[], deposits=[], subDates=[], flows=[];
   const t0 = new Date(dates[i0]);
   let lastMonth = null;
 
@@ -382,7 +386,7 @@ function backtest(p){
     //    注意：加仓是在已有仓位上继续投，不是必须先空仓。
     //    文档原文「只要 QQQ 保持在牛市区间内，每次遇到单日跌 1%，
     //    就再次将账户现金全额加仓 TQQQ，以此无限循环」。
-    if(regime==='bull' && cash>0 && px>0){
+    if(regime==='bull' && px>0){
       const chg = i>0 ? qqq[i]/qqq[i-1]-1 : 0;
       const justFlipped = (prevRegime==='bear' || prevRegime===null);
       let go = false;
@@ -392,16 +396,25 @@ function backtest(p){
         go = true;  // 止损后宽松口径：牛市中遇回调即可买回
       }
       if(go){
-        const add = cash/px;
-        shares += add;
-        trades.push({date:dates[i],
-                     act: justFlipped ? '熊转牛买入' : (holding?'回调加仓':'回调建仓'),
-                     px, shares:add, amt:cash,
-                     note:`QQQ 单日 ${fmtPctS(chg)}`});
-        cash = 0;
-        // 止损高点：首次建仓时重置，加仓不重置（沿用「本次持仓周期内最高点」）
-        peak = holding ? Math.max(peak, px) : px;
-        holding = true;
+        if(cash > 0){
+          const add = cash/px;
+          shares += add;
+          trades.push({date:dates[i],
+                       act: justFlipped ? '熊转牛买入' : (holding?'回调加仓':'回调建仓'),
+                       px, shares:add, amt:cash,
+                       note:`QQQ 单日 ${fmtPctS(chg)}`});
+          cash = 0;
+          // 止损高点：首次建仓时重置，加仓不重置（沿用「本次持仓周期内最高点」）
+          peak = holding ? Math.max(peak, px) : px;
+          holding = true;
+        }else{
+          // 信号成立但账户没钱 —— 不产生交易，但保留下来作为「入金参考点」。
+          // 实际入金日不一定是月初，这些点位对真人操作是有价值的提示。
+          missed.push({date:dates[i],
+                       act: justFlipped ? '错过·熊转牛' : '错过·回调买入',
+                       px, chg,
+                       note:`QQQ 单日 ${fmtPctS(chg)}，账户无可用现金`});
+        }
       }
     }
 
@@ -423,7 +436,7 @@ function backtest(p){
                             && lastBuy.date.slice(0, 7) === lastMo);
 
   return {
-    trades, equity, deposits, dates:subDates, twr:dd.twr,
+    trades, missed, equity, deposits, dates:subDates, twr:dd.twr,
     invested, finalValue, irr,
     maxDD:dd.maxDD, longestYears:dd.longestYears,
     holding, shares, cash, start:subDates[0], end:subDates[subDates.length-1],
@@ -469,14 +482,45 @@ function runHold(series, p){
 const CHARTS = {};   // id -> 图表配置，供悬停交互复用
 
 /** 动作 → 颜色。图表标记与下方表格共用同一套配色，保证对得上。 */
+const ACT_COLOR = {
+  stop:    '#8a5a00',   // 琥珀：止损清仓
+  missed:  '#d4537e',   // 粉红：信号成立但账户无现金（入金参考点）
+  buy:     '#c0392b',   // 红：实际买入 / 加仓
+  sell:    '#0f6e56',   // 绿：牛转熊清仓
+};
 function actionColor(act){
-  if(act === '止损清仓') return '#8a5a00';              // 琥珀：止损
-  if(/买入|加仓|建仓/.test(act)) return '#c0392b';       // 红：买入（涨/买）
-  return '#0f6e56';                                     // 绿：卖出（跌/卖）
+  // 顺序不能变：「错过·回调买入」同时命中 错过 和 买入，必须先判错过
+  if(act === '止损清仓') return ACT_COLOR.stop;
+  if(/^错过/.test(act))  return ACT_COLOR.missed;
+  if(/买入|加仓|建仓/.test(act)) return ACT_COLOR.buy;
+  return ACT_COLOR.sell;
 }
 function actionTag(act){
   const c = actionColor(act);
   return `<span class="tag" style="color:${c};background:${c}18">${esc(act)}</span>`;
+}
+/** 成交记录 + 错过的信号，按日期倒序合成一张表 */
+function signalRows(bt){
+  return bt.trades.map(t => ({...t, kind:'trade'}))
+    .concat((bt.missed || []).map(m => ({...m, kind:'missed'})))
+    .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+}
+function signalRowHtml(r){
+  if(r.kind === 'missed'){
+    return `<tr>
+      <td class="mono">${r.date}</td>
+      <td>${actionTag(r.act)}</td>
+      <td class="mono">${fmtN(r.px)}</td>
+      <td class="mono">—</td>
+      <td class="mono muted">无可用现金</td>
+      <td class="muted">QQQ 单日 ${fmtPctS(r.chg)} · 入金参考点</td></tr>`;
+  }
+  return `<tr>
+    <td class="mono">${r.date}</td>
+    <td>${actionTag(r.act)}</td>
+    <td class="mono">${fmtN(r.px)}</td><td class="mono">${fmtN(r.shares,2)}</td>
+    <td class="mono">${fmtMoney(r.amt)}</td>
+    <td class="muted">${esc(r.note||'')}</td></tr>`;
 }
 
 /** 按跨度自适应时间刻度粒度：1 年内按月，4 年内按季，再长按年 */
@@ -579,7 +623,8 @@ function svgLine(seriesList, dates, opts){
     if(i == null) return;
     const v = m.value != null ? m.value : (seriesList[0] && seriesList[0].values[i]);
     if(v == null || !isFinite(v)) return;
-    g += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="4.5" `
+    // 半径可单独指定：真实成交更大，「错过」稍小，视觉上有主次
+    g += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${m.r || 4.5}" `
        + `fill="${m.color}" stroke="#fff" stroke-width="1.6"/>`;
   });
 
@@ -633,14 +678,20 @@ function bindHover(el, id){
     }
 
     let html = `<div class="t-date">${cfg.dates[i]}</div>`;
+    // 当日涨跌：只对显式开启 showChg 的序列计算（阈值线、均线算涨跌没意义）
+    const chgOf = vals => (i > 0 && vals[i - 1] != null && isFinite(vals[i - 1]) && vals[i - 1] !== 0)
+      ? fmtPctS(vals[i] / vals[i - 1] - 1) : '';
     cfg.series.forEach(s => {
       const v = s.values[i];
       if(v == null || !isFinite(v)) return;
-      html += `<div class="t-row"><span style="color:${s.color}">${esc(s.name)}</span><b>${fmtN(v)}</b></div>`;
+      const c = s.showChg ? chgOf(s.values) : '';
+      html += `<div class="t-row"><span style="color:${s.color}">${esc(s.name)}</span>`
+            + `<b>${fmtN(v)}${c ? ` <span class="t-chg">${c}</span>` : ''}</b></div>`;
     });
     if(cfg.extra){
       (cfg.extra(i) || []).forEach(x => {
-        html += `<div class="t-row"><span style="color:${x.color||'#5f5e5a'}">${esc(x.name)}</span><b>${x.value}</b></div>`;
+        html += `<div class="t-row"><span style="color:${x.color||'#5f5e5a'}">${esc(x.name)}</span>`
+              + `<b>${x.value}${x.chg ? ` <span class="t-chg">${x.chg}</span>` : ''}</b></div>`;
       });
     }
     (cfg.markers || []).filter(m => m.date === cfg.dates[i]).forEach(m => {
@@ -765,38 +816,38 @@ function renderSignal(){
   const s = Math.max(0, i-249);
   const winDates = dates.slice(s, i+1);
   const sl = [
-    {name:'QQQ',   values:qqq.slice(s,i+1), color:'#1c1c1a', w:1.7},
+    {name:'QQQ',   values:qqq.slice(s,i+1), color:'#1c1c1a', w:1.7, showChg:true},
     {name:'MA200', values:ma.slice(s,i+1),  color:'#185fa5', w:1.4},
     {name:'牛市线', values:ma.slice(s,i+1).map(v=>v==null?null:v*bull), color:'#c0392b', w:1, dash:true},
     {name:'熊市线', values:ma.slice(s,i+1).map(v=>v==null?null:v*bear), color:'#0f6e56', w:1, dash:true},
   ];
-  // 只标出落在可视窗口内的信号
-  const markers = bt.trades
-    .filter(t => t.date >= winDates[0] && t.date <= winDates[winDates.length-1])
-    .map(t => ({date:t.date, color:actionColor(t.act), label:t.act}));
+  // 只标出落在可视窗口内的信号：真实成交 + 无现金错过的（入金参考点）
+  const inWin = d => d >= winDates[0] && d <= winDates[winDates.length - 1];
+  const markers = signalRows(bt)
+    .filter(r => inWin(r.date))
+    .map(r => ({date:r.date, color:actionColor(r.act), label:r.act,
+                r: r.kind === 'missed' ? 3.4 : 4.5}));
 
   mountChart('chart-signal', svgLine(sl, winDates, {
     // 250 个交易日约跨 13 个自然月。刻度位给足，才能每个月都标出来而不是隔月标。
     id:'chart-signal', height:250, maxTicks:16, markers,
-    // TQQQ 不画进这张图（量纲差太多），但放进 tooltip
+    // TQQQ 不画进这张图（量纲差太多），但放进 tooltip（含当日涨跌）
     extra: k => {
-      const tv = tqqq[s+k];
-      return tv == null ? [] : [{name:'TQQQ', value:fmtN(tv), color:'#1c1c1a'}];
+      const tv = tqqq[s + k], pv = k > 0 ? tqqq[s + k - 1] : null;
+      if(tv == null) return [];
+      return [{
+        name:'TQQQ', value:fmtN(tv), color:'#1c1c1a',
+        chg: (pv != null && pv !== 0) ? fmtPctS(tv / pv - 1) : '',
+      }];
     }
   }));
 
-  // 近期信号
-  const recent = bt.trades.slice(-14).reverse();
+  // 近期信号（含错过的）
+  const recent = signalRows(bt).slice(0, 14);
   $('#recent-signals').innerHTML = recent.length ? `
     <div class="scroll"><table>
       <thead><tr><th>日期</th><th>动作</th><th>TQQQ 价格</th><th>股数</th><th>金额</th><th>说明</th></tr></thead>
-      <tbody>${recent.map(t=>`<tr>
-        <td class="mono">${t.date}</td>
-        <td>${actionTag(t.act)}</td>
-        <td class="mono">${fmtN(t.px)}</td><td class="mono">${fmtN(t.shares,2)}</td>
-        <td class="mono">${fmtMoney(t.amt)}</td>
-        <td class="muted">${esc(t.note||'')}</td></tr>`).join('')}
-      </tbody></table></div>`
+      <tbody>${recent.map(signalRowHtml).join('')}</tbody></table></div>`
     : '<div class="empty">当前数据区间内没有触发任何交易信号</div>';
 }
 
@@ -861,17 +912,22 @@ function runBacktest(){
     [{name:'回撤', values:ddSeries, color:'#0f6e56', w:1.5}], dates,
     {id:'chart-dd', height:190, dec:0, zero:true, maxTicks:10}));
 
-  // 明细
-  const rows = bt.trades.slice().reverse();
+  // 明细：真实成交 + 无现金错过的信号（后者是入金参考点，不计入交易次数）
+  const rows = signalRows(bt);
+  const missedN = (bt.missed || []).length;
   $('#bt-trades').innerHTML = rows.length ? `
     <thead><tr><th>日期</th><th>动作</th><th>TQQQ 价格</th><th>股数</th><th>金额</th><th>说明</th></tr></thead>
-    <tbody>${rows.map(t=>`<tr>
-      <td class="mono">${t.date}</td>
-      <td>${actionTag(t.act)}</td>
-      <td class="mono">${fmtN(t.px)}</td><td class="mono">${fmtN(t.shares,2)}</td>
-      <td class="mono">${fmtMoney(t.amt)}</td>
-      <td class="muted">${esc(t.note||'')}</td></tr>`).join('')}</tbody>`
+    <tbody>${rows.map(signalRowHtml).join('')}</tbody>`
     : '<tbody><tr><td class="empty">该参数下没有触发任何交易</td></tr></tbody>';
+  const noteEl = $('#bt-trades-note');
+  if(missedN){
+    noteEl.innerHTML = `另有 <b>${missedN}</b> 次买入信号因账户无现金未执行（粉红标记），
+      仅作入金参考，不计入上方交易次数与收益。`;
+    noteEl.style.display = '';
+  }else{
+    noteEl.innerHTML = '';
+    noteEl.style.display = 'none';
+  }
 }
 
 /* ============================================================
