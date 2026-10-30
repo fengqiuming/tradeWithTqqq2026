@@ -1,15 +1,25 @@
 name: 更新行情数据
 
 on:
-  # 美股收盘后运行。美东 16:00 = 夏令时 20:00 UTC / 冬令时 21:00 UTC，
-  # 取 21:30 UTC 两个时段都能覆盖（夏令时会晚约 1.5 小时，日线级策略无影响）。
+  # 美股收盘后运行。美东 16:00 = 夏令时 20:00 UTC / 冬令时 21:00 UTC，取 21:30 UTC。
+  #
+  # 但 GitHub 的 cron 延迟常有 2~3 小时（21:30 UTC 实际 00:40~02:00 UTC 才跑，
+  # 即 20:40~22:00 ET），而 Yahoo 在这个时点**经常还没出当日 K 线**，于是数据
+  # 永远落后 1 个交易日。所以再加一个晚间兜底：04:00 UTC = 00:00 ET，
+  # 那时 Yahoo 基本已补齐。前一次若已拿到最新数据，后一次因无变化自动跳过。
   schedule:
     - cron: '30 21 * * 1-5'
+    - cron: '0 4 * * 2-6'
   workflow_dispatch:      # 允许手动触发
   push:
     paths:
       - 'scripts/fetch_data.py'
       - '.github/workflows/update-data.yml'
+
+# 两个定时点 + 手动触发可能撞在一起；并发跑会互相把数据文件推来推去
+concurrency:
+  group: update-data
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -53,19 +63,37 @@ jobs:
         run: |
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
+          # 远端可能已经前进，此时直接 push 必然 non-fast-forward：
+          #   · 重跑失败的 run 时，checkout 固定在那次 run 创建时的旧 commit，
+          #     而那次 run 自己其实已经把数据提交过一次了
+          #   · 两个定时任务（21:30 / 04:00 UTC）偶尔挨得很近
+          # data/ 是生成物，正确做法是丢掉本地提交、以远端为基准重建这一个提交，
+          # 而不是 rebase 后祈祷没有冲突。
+          git fetch --depth=1 origin main
+          git reset --soft FETCH_HEAD
           git add data/market.json data/market.js
           git commit -m "chore: 更新行情数据 $(date -u +'%Y-%m-%d')"
-          git push
+          git push origin HEAD:main
 
       - name: 数据滞后告警
         if: always()
         run: |
-          # 脚本内部已按交易日历重试约 11 分钟，走到这里仍是 stale 说明是
-          # 上游数据源的问题，不是偶发抖动。把 run 标红让人看见，
-          # 但数据已经在上面提交过了 —— 前端同时会显示红色「数据滞后」提示。
+          # 脚本内部已按交易日历重试约 11 分钟，走到这里仍 stale 说明上游没给数据。
+          # 数据在上面照常提交过了（能更新多少算多少），这里只负责把问题说清楚：
+          #   · 落后 1 个交易日：Yahoo 在收盘后数小时内迟迟不出当日 K 线，属常态。
+          #     晚间兜底任务会补上，标黄不标红 —— 天天红就没人看了。
+          #   · 落后 2 个交易日以上：要么数据源真的停了，要么复权口径变了，必须人看。
           if grep -q '"stale":true' data/market.json; then
-            echo "::error::行情数据落后于美股最新已收盘交易日（数据源未给出最新行情）"
-            grep -o '"stale_reason":"[^"]*"' data/market.json || true
-            exit 1
+            days=$(grep -o '"stale_days":[0-9]*' data/market.json | head -1 | cut -d: -f2)
+            days=${days:-1}
+            reason=$(grep -o '"stale_reason":"[^"]*"' data/market.json | head -1 | cut -d: -f2- | tr -d '"')
+            if [ "$days" -ge 2 ]; then
+              echo "::error::行情数据落后 $days 个交易日（数据源持续未给最新行情）"
+              echo "$reason"
+              exit 1
+            fi
+            echo "::warning::行情落后 1 个交易日，晚间兜底任务会自动重试"
+            echo "$reason"
+            exit 0
           fi
           echo "数据新鲜度正常"
